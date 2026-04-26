@@ -1,0 +1,15 @@
+target/
+.git/
+.github/
+.specify/
+.claude/
+specs/
+tests/
+config.toml
+energy.db
+*.db-wal
+*.db-shm
+*.log
+.env
+.env.*
+.DS_Store

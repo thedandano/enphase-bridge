@@ -1,0 +1,16 @@
+services:
+  enphase-ds:
+    image: ghcr.io/${GITHUB_REPOSITORY:-your-user/enphase-ds}:latest
+    restart: unless-stopped
+    # host network lets the container reach the gateway at 192.168.x.x
+    network_mode: host
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      - enphase-data:/app/data
+    environment:
+      RUST_LOG: info
+      # Override db_path so the database lands on the persistent volume
+      ENPHASE__STORAGE__DB_PATH: /app/data/energy.db
+
+volumes:
+  enphase-data:
