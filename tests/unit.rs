@@ -1,0 +1,11 @@
+#[path = "unit/token_manager_test.rs"]
+mod token_manager_test;
+
+#[path = "unit/calculator_test.rs"]
+mod calculator_test;
+
+#[path = "unit/window_aggregator_test.rs"]
+mod window_aggregator_test;
+
+#[path = "unit/snapshot_test.rs"]
+mod snapshot_test;

@@ -1,0 +1,34 @@
+[gateway]
+host = "192.168.1.100"   # Your IQ Gateway LAN IP (or "envoy.local")
+token = "eyJ..."          # JWT from Enphase cloud — do not commit the real value
+
+[polling]
+interval_secs = 60        # Poll interval in seconds (minimum: 15)
+
+[api]
+host = "0.0.0.0"
+port = 8080
+
+[storage]
+db_path = "./energy.db"
+
+[tou]
+openei_api_key = "your_openei_key_here"
+# SDG&E EIA ID: 16609. Use the exact `name` from OpenEI URDB matching your baseline region:
+#   Coastal:  "TOU-DR Coastal Baseline Region"
+#   Inland:   "TOU-DR Inland Baseline Region"   or "TOU-DR-1 Inland Baseline Region"
+#   Desert:   "TOU-DR Desert Baseline Region"
+#   Mountain: "TOU-DR Mountain Baseline Region"
+sdge_rate_label = "TOU-DR Coastal Baseline Region"
+
+# Optional: group inverters into named arrays for /api/inverters/arrays
+# Serial numbers come from /api/v1/production/inverters on your gateway.
+# If omitted, the endpoint returns an empty arrays list.
+[arrays]
+default = [
+    "202321152253",
+    "202322032109",
+    # add more serial numbers here
+]
+# east-roof = ["serial1", "serial2"]
+# west-roof = ["serial3", "serial4"]

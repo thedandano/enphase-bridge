@@ -1,0 +1,62 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+env:
+  BINARY_NAME: enphase-ds
+  DEPLOY_PATH: /opt/enphase-ds
+  SERVICE_NAME: enphase-ds
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-release-${{ secrets.DEPLOY_TARGET }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-release-
+
+      - name: Install cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build release binary
+        run: cross build --release --target ${{ secrets.DEPLOY_TARGET }}
+
+      - name: Deploy via SSH
+        run: |
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
+          TARGET="${{ secrets.DEPLOY_TARGET }}"
+
+          scp -i /tmp/deploy_key \
+              -o StrictHostKeyChecking=no \
+              "target/${TARGET}/release/${BINARY_NAME}" \
+              "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${DEPLOY_PATH}/${BINARY_NAME}.new"
+
+          ssh -i /tmp/deploy_key \
+              -o StrictHostKeyChecking=no \
+              "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+              "mv ${DEPLOY_PATH}/${BINARY_NAME}.new ${DEPLOY_PATH}/${BINARY_NAME} \
+               && sudo systemctl restart ${SERVICE_NAME} \
+               && systemctl is-active ${SERVICE_NAME}"
+
+          rm -f /tmp/deploy_key

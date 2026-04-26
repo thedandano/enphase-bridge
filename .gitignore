@@ -1,0 +1,30 @@
+# Rust
+/target
+debug/
+release/
+*.rs.bk
+*.rlib
+
+# Secrets & local config (never commit)
+config.toml
+energy.db
+energy_archive.db
+*.db-wal
+*.db-shm
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.tmp
+
+# Logs
+*.log
+
+# Env
+.env
+.env.*
