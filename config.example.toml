@@ -14,11 +14,26 @@ db_path = "./energy.db"
 
 [tou]
 openei_api_key = "your_openei_key_here"
-# SDG&E EIA ID: 16609. Use the exact `name` from OpenEI URDB matching your baseline region:
-#   Coastal:  "TOU-DR Coastal Baseline Region"
-#   Inland:   "TOU-DR Inland Baseline Region"   or "TOU-DR-1 Inland Baseline Region"
-#   Desert:   "TOU-DR Desert Baseline Region"
-#   Mountain: "TOU-DR Mountain Baseline Region"
+# Your utility's rate schedule label from OpenEI URDB. This applies to ANY utility,
+# not just SDG&E. Find your utility and rate schedule at:
+# https://openei.org/wiki/Utility_Rate_Database
+#
+# Examples:
+#   SDG&E EIA 16609 (San Diego, CA):
+#     - "TOU-DR Coastal Baseline Region"
+#     - "TOU-DR Inland Baseline Region"
+#     - "TOU-DR Desert Baseline Region"
+#     - "TOU-DR Mountain Baseline Region"
+#   PG&E (Northern California):
+#     - "E-TOU-C" (residential, PG&E EIA 14701)
+#   Southern California Edison (SCE):
+#     - "TOU-GS-1-B" (small commercial, SCE EIA 3970)
+#
+# To find your utility's exact rate label:
+# 1. Go to https://openei.org/wiki/Utility_Rate_Database
+# 2. Search for your utility name and state
+# 3. Find your rate schedule in the results
+# 4. Use the exact value from the "Name" field
 sdge_rate_label = "TOU-DR Coastal Baseline Region"
 
 # Optional: group inverters into named arrays for /api/inverters/arrays

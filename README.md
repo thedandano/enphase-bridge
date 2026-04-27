@@ -79,11 +79,19 @@ sdge_rate_label = "TOU-DR Coastal Baseline Region"
 
 > **Note:** The Enlighten UI path changes occasionally. If you cannot find "Local API Access", search Enphase's community forums for the current path for your firmware version.
 
-#### Obtain an OpenEI API key
+#### Obtain an OpenEI API key and find your utility rate label
 
 1. Sign up for a free account at [OpenEI](https://apps.openei.org/services/api/signup/)
 2. Once registered, navigate to your [API Key](https://apps.openei.org/services/api/signup/) page and copy your key
 3. Paste it into `config.toml` → `tou.openei_api_key`
+
+4. Find your utility rate schedule label in the [OpenEI URDB](https://openei.org/wiki/Utility_Rate_Database):
+   - Search for your utility name and state
+   - Select your rate schedule (e.g., TOU, time-of-use, or dynamic pricing plan)
+   - Copy the **Name** field (e.g., `"TOU-DR Coastal Baseline Region"` for SDG&E, or `"E-TOU-C"` for PG&E)
+5. Paste it into `config.toml` → `tou.sdge_rate_label`
+
+> The `sdge_rate_label` setting name is historical (SDG&E was the first supported utility), but it works with **any utility** in the OpenEI database. Use your utility's actual rate label, whatever it is.
 
 ### 2. Run
 
