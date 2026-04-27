@@ -112,23 +112,3 @@ jobs:
             "${refs[@]}"
           docker buildx imagetools inspect "${IMAGE}:latest"
 
-  deploy:
-    name: Deploy
-    needs: merge
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Pull and restart on server
-        run: |
-          echo "${{ secrets.DEPLOY_SSH_KEY }}" > /tmp/deploy_key
-          chmod 600 /tmp/deploy_key
-
-          ssh -i /tmp/deploy_key \
-              -o StrictHostKeyChecking=no \
-              "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
-              "cd /opt/enphase-ds \
-               && GITHUB_REPOSITORY=${{ github.repository }} docker compose pull \
-               && GITHUB_REPOSITORY=${{ github.repository }} docker compose up -d \
-               && docker image prune -f"
-
-          rm -f /tmp/deploy_key
