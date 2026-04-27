@@ -264,3 +264,7 @@ All keys can be overridden via environment variables using the `ENPHASE__` prefi
 [AGPL v3](./LICENSE) — free for personal and open-source use. Forks and derivatives must remain open source, including network-deployed services.
 
 For commercial use, contact [dansedano.dev@gmail.com](mailto:dansedano.dev@gmail.com).
+
+### No Warranty
+
+This software is provided "as-is" without warranty of any kind, express or implied. The author assumes no liability for damages, data loss, or any other consequences resulting from the use of this software. You use enphase-bridge at your own risk.
