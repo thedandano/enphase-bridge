@@ -21,3 +21,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial use (closed-source products, SaaS, or any use that does not
 comply with the AGPL v3 terms), a separate commercial license is required.
 Contact: dansedano.dev@gmail.com
+
+---
+
+DISCLAIMER OF LIABILITY
+
+THIS SOFTWARE IS PROVIDED "AS-IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+AUTHOR OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM
+OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+You assume all risk and responsibility for the use of this software. The author
+assumes no liability for damages, data loss, system failures, or any other
+consequences resulting from the use, misuse, or inability to use this software.
