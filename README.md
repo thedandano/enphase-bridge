@@ -1,57 +1,16 @@
 # enphase-bridge
 
-A self-hosted daemon that bridges your Enphase IQ Gateway to a local REST API. It polls your gateway on a configurable schedule, stores production and consumption data in SQLite, and serves a queryable HTTP API with optional Bearer token authentication.
+[![CI](https://github.com/thedandano/enphase-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/thedandano/enphase-bridge/actions/workflows/ci.yml)
+[![CD](https://github.com/thedandano/enphase-bridge/actions/workflows/cd.yml/badge.svg)](https://github.com/thedandano/enphase-bridge/actions/workflows/cd.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
+[![Rust 2024](https://img.shields.io/badge/Rust-2024_edition-orange.svg?logo=rust)](https://www.rust-lang.org/)
+[![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/thedandano/enphase-bridge/pkgs/container/enphase-bridge)
 
-Built for homeowners who want to own their energy data — run it on a Raspberry Pi, a NAS, or a small VPS behind Caddy (a reverse proxy that auto-provisions HTTPS).
+A self-hosted Rust daemon that bridges your **Enphase IQ Gateway** to a local REST API. It polls your gateway on a configurable schedule, stores production and consumption data in SQLite, and serves a queryable HTTP API with optional Bearer token authentication.
 
----
+Built for homeowners who want to own their energy data — run it on a Raspberry Pi, a NAS, or any small home server. Pair with Caddy for automatic HTTPS.
 
-## Architecture
-
-```mermaid
-graph TD
-    GW["Enphase IQ Gateway\n(LAN: 192.168.x.x)"]
-    DB[(SQLite)]
-    SVC["enphase-bridge\n(Rust daemon)"]
-    PROXY["Reverse Proxy\n(Caddy / nginx — optional)"]
-    CLIENT["Client\n(scripts · dashboards · apps)"]
-    OPENEI["OpenEI URDB\n(TOU rate schedule)"]
-
-    GW -- "HTTPS + JWT\n(every N seconds)" --> SVC
-    OPENEI -- "Rate schedule\n(on demand)" --> SVC
-    SVC -- "read / write" --> DB
-    SVC -- "REST API\n(:8080)" --> PROXY
-    PROXY -- "HTTPS" --> CLIENT
-    CLIENT -- "direct HTTP\n(LAN only)" -.-> SVC
-
-    style SVC fill:#2d6a4f,color:#fff
-    style DB fill:#1b4332,color:#fff
-    style GW fill:#40916c,color:#fff
-    style OPENEI fill:#52b788,color:#000
-    style PROXY fill:#74c69d,color:#000
-    style CLIENT fill:#b7e4c7,color:#000
-```
-
-### Internal layout
-
-```mermaid
-graph LR
-    subgraph enphase-bridge
-        POLL["Collector\nscheduler.rs\ngateway_client.rs"]
-        AGG["Window Aggregator\n15-min Wh buckets"]
-        STORE["Storage\nSQLite via sqlx"]
-        API["API Server\nAxum router"]
-        AUTH["Auth Middleware\nBearer token\n(optional)"]
-        CFG["Config\nFigment · TOML + env"]
-    end
-
-    POLL --> AGG --> STORE
-    STORE --> API
-    AUTH --> API
-    CFG --> POLL
-    CFG --> API
-    CFG --> AUTH
-```
+> For architecture diagrams, component details, and technology choices, see [ARCH.md](./ARCH.md).
 
 ---
 
@@ -81,7 +40,7 @@ graph LR
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/your-user/enphase-bridge.git
+git clone https://github.com/thedandano/enphase-bridge.git
 cd enphase-bridge
 cp config.example.toml config.toml
 echo "config.toml" >> .gitignore   # keep your credentials out of git
@@ -129,12 +88,30 @@ cargo build --release
 ./target/release/enphase-bridge
 ```
 
-**Docker Compose:**
+**Docker (single container):**
+
+```bash
+docker run -d \
+  --name enphase-bridge \
+  --network host \
+  -e ENPHASE__GATEWAY__HOST="192.168.1.100" \
+  -e ENPHASE__GATEWAY__TOKEN="eyJ..." \
+  -e ENPHASE__POLLING__INTERVAL_SECS="60" \
+  -e ENPHASE__API__HOST="0.0.0.0" \
+  -e ENPHASE__API__PORT="8080" \
+  -e ENPHASE__STORAGE__DB_PATH="/data/energy.db" \
+  -e ENPHASE__TOU__OPENEI_API_KEY="your_openei_key" \
+  -e ENPHASE__TOU__SDGE_RATE_LABEL="TOU-DR Coastal Baseline Region" \
+  -v enphase-data:/data \
+  ghcr.io/thedandano/enphase-bridge:latest
+```
+
+**Docker Compose (recommended for production):**
 
 ```bash
 # GITHUB_REPOSITORY controls which image is pulled:
 # ghcr.io/<owner>/enphase-bridge:latest
-GITHUB_REPOSITORY=your-user/enphase-bridge docker compose up -d
+GITHUB_REPOSITORY=thedandano/enphase-bridge docker compose up -d
 docker compose logs -f
 ```
 
@@ -264,12 +241,12 @@ If your key is compromised:
 
 ```bash
 # Clone the repo if you haven't already
-git clone https://github.com/your-user/enphase-bridge.git
+git clone https://github.com/thedandano/enphase-bridge.git
 cd enphase-bridge
 
 # GITHUB_REPOSITORY is interpolated into the image reference in compose.yaml:
 # image: ghcr.io/<owner>/enphase-bridge:latest
-GITHUB_REPOSITORY=your-user/enphase-bridge docker compose up -d
+GITHUB_REPOSITORY=thedandano/enphase-bridge docker compose up -d
 
 # View logs
 docker compose logs -f enphase-bridge
