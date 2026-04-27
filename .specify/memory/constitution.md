@@ -25,6 +25,16 @@ Deferred TODOs: None
 
 # Enphase Data Service Constitution
 
+## North Star
+
+> Provide a customer-centric service that is easy to use and gives the customer
+> as much or as little data as they want.
+
+Every feature, API design decision, and default configuration choice MUST be
+evaluated against this statement. Complexity is only justified if it unlocks
+something the customer asked for. Sensible defaults ship first; depth is
+opt-in.
+
 ## Core Principles
 
 ### I. Rust Implementation
@@ -130,4 +140,4 @@ The following standards apply across all phases of development:
   invocation. Non-compliance blocks progression.
 - The runtime development guidance file is `CLAUDE.md` at the repository root.
 
-**Version**: 1.0.0 | **Ratified**: 2026-04-26 | **Last Amended**: 2026-04-26
+**Version**: 1.1.0 | **Ratified**: 2026-04-26 | **Last Amended**: 2026-04-26
