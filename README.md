@@ -73,11 +73,17 @@ sdge_rate_label = "TOU-DR Coastal Baseline Region"
 #### Obtain a gateway JWT
 
 1. Log in to [Enlighten](https://enlighten.enphaseenergy.com)
-2. Open your system → **Settings** → **Local API Access**
+2. Open your system → **Settings** → **Local API Access** ([direct link](https://enlighten.enphaseenergy.com/app/settings/local-api-access))
 3. Generate a **local** access token (valid 1 year for homeowner accounts). This is a gateway-scoped JWT, not a cloud API key.
 4. Paste it into `config.toml` → `gateway.token`
 
 > **Note:** The Enlighten UI path changes occasionally. If you cannot find "Local API Access", search Enphase's community forums for the current path for your firmware version.
+
+#### Obtain an OpenEI API key
+
+1. Sign up for a free account at [OpenEI](https://apps.openei.org/services/api/signup/)
+2. Once registered, navigate to your [API Key](https://apps.openei.org/services/api/signup/) page and copy your key
+3. Paste it into `config.toml` → `tou.openei_api_key`
 
 ### 2. Run
 
@@ -108,10 +114,44 @@ docker run -d \
 
 **Docker Compose (recommended for production):**
 
+Create a `docker-compose.yml` in your deployment directory:
+
+```yaml
+version: '3.8'
+
+services:
+  enphase-bridge:
+    image: ghcr.io/thedandano/enphase-bridge:latest
+    container_name: enphase-bridge
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      ENPHASE__GATEWAY__HOST: "192.168.1.100"
+      ENPHASE__GATEWAY__TOKEN: "eyJ..."
+      ENPHASE__POLLING__INTERVAL_SECS: "60"
+      ENPHASE__API__HOST: "0.0.0.0"
+      ENPHASE__API__PORT: "8080"
+      ENPHASE__STORAGE__DB_PATH: "/data/energy.db"
+      ENPHASE__TOU__OPENEI_API_KEY: "your_openei_api_key"
+      ENPHASE__TOU__SDGE_RATE_LABEL: "TOU-DR Coastal Baseline Region"
+    volumes:
+      - enphase-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  enphase-data:
+    driver: local
+```
+
+Then start with:
+
 ```bash
-# GITHUB_REPOSITORY controls which image is pulled:
-# ghcr.io/<owner>/enphase-bridge:latest
-GITHUB_REPOSITORY=thedandano/enphase-bridge docker compose up -d
+docker compose up -d
 docker compose logs -f
 ```
 
