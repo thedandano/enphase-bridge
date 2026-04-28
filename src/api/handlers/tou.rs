@@ -15,7 +15,11 @@ struct RefreshResponse {
 }
 
 pub async fn refresh_tou(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    let client = OpenEiClient::new(state.tou_api_key.clone(), state.tou_utility_eia_id, state.tou_rate_label.clone());
+    let client = OpenEiClient::new(
+        state.tou_api_key.clone(),
+        state.tou_utility_eia_id,
+        state.tou_rate_label.clone(),
+    );
     let fetched = client.fetch().await?;
 
     let fetched_at = unix_now();

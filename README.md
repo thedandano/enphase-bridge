@@ -240,6 +240,20 @@ All keys can be overridden via environment variables using the `ENPHASE__` prefi
 
 ---
 
+## Development
+
+### Git hooks
+
+After cloning, activate the repo's hooks once:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+This runs `cargo fmt --check` + `cargo clippy` on every commit and `cargo test` on every push — the same checks CI enforces.
+
+---
+
 ## License
 
 [AGPL v3](./LICENSE) — free for personal and open-source use. Forks and derivatives must remain open source, including network-deployed services.
