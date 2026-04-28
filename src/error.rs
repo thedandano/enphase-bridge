@@ -93,11 +93,14 @@ impl IntoResponse for AppError {
             AppError::Tou(TouError::UpstreamUnavailable(m)) => {
                 (StatusCode::BAD_GATEWAY, "upstream_unavailable", m.clone())
             }
-            _ => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal_error",
-                self.to_string(),
-            ),
+            _ => {
+                tracing::error!(error = %self, "internal error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    self.to_string(),
+                )
+            }
         };
         (status, Json(json!({ "error": code, "message": message }))).into_response()
     }
