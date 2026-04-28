@@ -18,7 +18,7 @@ Built for homeowners who want to own their energy data — run it on a Raspberry
 
 - **15-minute energy windows** — production, consumption, grid import/export (Wh)
 - **Per-inverter snapshots** — power (W), online status, named array groupings
-- **TOU cost estimation** — Time-of-Use peak/off-peak/super-off-peak breakdown against SDG&E rates from the OpenEI Utility Rate Database (URDB)
+- **TOU cost estimation** — Time-of-Use peak/off-peak/super-off-peak breakdown using your utility's rates from the OpenEI Utility Rate Database (URDB)
 - **True-Up estimate** — annual net metering cost or credit over any date range
 - **Optional API key auth** — disabled by default; one config line to enable; auto-generated key or bring your own
 - **Structured JSON logs** — every event has a machine-readable `event` field
@@ -34,7 +34,7 @@ Built for homeowners who want to own their energy data — run it on a Raspberry
 |-------------|-------|
 | Enphase IQ Gateway | Reachable on your LAN at a known IP |
 | Enphase gateway JWT | 1-year local access token — [how to get it](#enphase-gateway-jwt) |
-| OpenEI API key | Free — [sign up here](https://apps.openei.org/services/api/signup/) — [how to find your rate label](#openei-api-key--rate-label) |
+| OpenEI API key + utility ID | Free — [sign up here](https://apps.openei.org/services/api/signup/) — [how to find both](#openei-api-key-utility-id--rate-label) |
 | Docker | Any recent install; or Rust stable via [rustup.rs](https://rustup.rs) to build locally |
 
 #### Enphase gateway JWT
@@ -46,14 +46,14 @@ Built for homeowners who want to own their energy data — run it on a Raspberry
 
 > **Note:** The Enlighten UI path changes occasionally. If you cannot find "Local API Access", search Enphase's community forums for the current path for your firmware version.
 
-#### OpenEI API key & rate label
+#### OpenEI API key, utility ID & rate label
 
 1. Sign up for a free account at [OpenEI](https://apps.openei.org/services/api/signup/) and copy your API key
 2. Paste it into `config.toml` → `tou.openei_api_key`
-3. Find your rate schedule in the [OpenEI URDB](https://openei.org/wiki/Utility_Rate_Database): search by utility name and state, then copy the **Name** field (e.g. `"TOU-DR Coastal Baseline Region"` for SDG&E, `"E-TOU-C"` for PG&E)
-4. Paste it into `config.toml` → `tou.sdge_rate_label`
-
-> The `sdge_rate_label` key name is historical (SDG&E was the first supported utility) but it works with **any utility** in the OpenEI database.
+3. Find your utility's **EIA ID** in the [OpenEI URDB](https://openei.org/wiki/Utility_Rate_Database): search by utility name and state, then look for the EIA ID in the utility details (e.g. `16609` for SDG&E, `14701` for PG&E, `3970` for SCE)
+4. Paste it into `config.toml` → `tou.utility_eia_id`
+5. Find your **rate plan name**: on the same URDB page, select your residential TOU plan and copy the exact **Name** field (e.g. `"TOU-DR Coastal Baseline Region"` for SDG&E, `"E-TOU-C"` for PG&E)
+6. Paste it into `config.toml` → `tou.rate_label`
 
 ### 1. Clone and configure
 
