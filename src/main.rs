@@ -15,7 +15,9 @@ use tracing_subscriber::EnvFilter;
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .json()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("enphase_ds=info".parse()?))
+        .with_env_filter(
+            EnvFilter::from_default_env().add_directive("enphase_bridge=info".parse()?),
+        )
         .with_target(true)
         .with_current_span(false)
         .init();

@@ -1,4 +1,4 @@
-use enphase_ds::auth::token_manager::TokenManager;
+use enphase_bridge::auth::token_manager::TokenManager;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn unix_now() -> i64 {

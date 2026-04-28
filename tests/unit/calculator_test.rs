@@ -1,5 +1,5 @@
-use enphase_ds::storage::models::{EnergyWindow, TouRateSchedule};
-use enphase_ds::trueup::calculator;
+use enphase_bridge::storage::models::{EnergyWindow, TouRateSchedule};
+use enphase_bridge::trueup::calculator;
 
 // 3-period fixture: period 0 = super-off-peak ($0.15), period 1 = off-peak ($0.25), period 2 = peak ($0.40)
 // Weekday schedule: hours 0-5 → 0, hours 6-15 → 1, hours 16-20 → 2, hours 21-23 → 1

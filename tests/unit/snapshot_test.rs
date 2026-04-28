@@ -1,4 +1,4 @@
-use enphase_ds::inverter::snapshot::{InverterReport, parse_snapshots};
+use enphase_bridge::inverter::snapshot::{InverterReport, parse_snapshots};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn now_ts() -> i64 {

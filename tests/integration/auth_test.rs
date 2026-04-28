@@ -4,7 +4,7 @@
 //
 // This test is skipped automatically when env vars are absent so CI passes without hardware.
 
-use enphase_ds::collector::gateway_client::GatewayClient;
+use enphase_bridge::collector::gateway_client::GatewayClient;
 
 #[tokio::test]
 async fn test_gateway_auth_and_poll() {

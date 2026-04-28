@@ -1,4 +1,4 @@
-use enphase_ds::collector::window_aggregator::{
+use enphase_bridge::collector::window_aggregator::{
     CumulativeReading, WINDOW_SECS, compute_delta, window_boundary,
 };
 
