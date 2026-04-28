@@ -48,7 +48,7 @@ impl Config {
     pub fn load() -> anyhow::Result<Self> {
         Ok(Figment::new()
             .merge(Toml::file("config.toml"))
-            .merge(Env::prefixed("ENPHASE_").split("__"))
+            .merge(Env::prefixed("ENPHASE__").split("__"))
             .extract()?)
     }
 }
