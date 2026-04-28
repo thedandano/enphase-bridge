@@ -4,6 +4,7 @@ use reqwest::Client;
 pub struct OpenEiClient {
     client: Client,
     api_key: String,
+    utility_eia_id: u32,
     rate_label: String,
 }
 
@@ -15,20 +16,20 @@ pub struct FetchedSchedule {
 }
 
 impl OpenEiClient {
-    pub fn new(api_key: String, rate_label: String) -> Self {
+    pub fn new(api_key: String, utility_eia_id: u32, rate_label: String) -> Self {
         Self {
             client: Client::new(),
             api_key,
+            utility_eia_id,
             rate_label,
         }
     }
 
     pub async fn fetch(&self) -> Result<FetchedSchedule, AppError> {
-        // SDG&E EIA utility ID: 16609. OpenEI `name` field is the human-readable rate name.
         let url = format!(
             "https://api.openei.org/utility_rates?version=7&format=json\
-             &eia=16609&sector=Residential&detail=full&api_key={}",
-            self.api_key
+             &eia={}&sector=Residential&detail=full&api_key={}",
+            self.utility_eia_id, self.api_key
         );
 
         let resp = self
@@ -64,8 +65,8 @@ impl OpenEiClient {
             .max_by_key(|i| i["startdate"].as_i64().unwrap_or(0))
             .ok_or_else(|| {
                 AppError::Tou(TouError::ParseError(format!(
-                    "rate '{}' not found in OpenEI response for SDG&E (EIA 17609)",
-                    self.rate_label
+                    "rate '{}' not found in OpenEI response for utility EIA {}",
+                    self.rate_label, self.utility_eia_id
                 )))
             })?;
 

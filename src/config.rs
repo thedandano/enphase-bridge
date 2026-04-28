@@ -41,7 +41,8 @@ pub struct StorageConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct TouConfig {
     pub openei_api_key: String,
-    pub sdge_rate_label: String,
+    pub utility_eia_id: u32,
+    pub rate_label: String,
 }
 
 impl Config {

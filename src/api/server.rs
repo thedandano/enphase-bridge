@@ -13,6 +13,7 @@ pub struct AppState {
     pub started_at: i64,
     pub arrays: HashMap<String, Vec<String>>,
     pub tou_api_key: String,
+    pub tou_utility_eia_id: u32,
     pub tou_rate_label: String,
 }
 

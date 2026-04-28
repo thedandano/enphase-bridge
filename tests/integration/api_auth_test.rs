@@ -30,6 +30,7 @@ fn make_state(pool: SqlitePool, api_key: Option<String>) -> AppState {
         started_at: 0,
         arrays: Default::default(),
         tou_api_key: String::new(),
+        tou_utility_eia_id: 0,
         tou_rate_label: String::new(),
         api_key: api_key.map(|k| Arc::from(k.as_str())),
     }

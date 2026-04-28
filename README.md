@@ -82,8 +82,9 @@ port = 8080
 db_path = "./energy.db"
 
 [tou]
-openei_api_key  = "your_openei_key"
-sdge_rate_label = "TOU-DR Coastal Baseline Region"
+openei_api_key = "your_openei_key"
+utility_eia_id = 16609
+rate_label     = "TOU-DR Coastal Baseline Region"
 ```
 
 **Do not commit `config.toml`** — it contains your gateway token. Use environment variables (see [Configuration reference](#configuration-reference)) to pass secrets in containers.
@@ -231,7 +232,8 @@ The container uses `network_mode: host` so it can reach your IQ Gateway at its L
 | `api.api_key` | _(none)_ | Static API key (≥32 chars); consulted only when `require_auth = true`; omit to auto-generate |
 | `storage.db_path` | **required** | Path to the SQLite database file (e.g. `./energy.db`) |
 | `tou.openei_api_key` | **required** | OpenEI API key for fetching TOU rate schedules |
-| `tou.sdge_rate_label` | **required** | Rate label to match in OpenEI URDB |
+| `tou.utility_eia_id` | **required** | Your utility's EIA ID in the OpenEI URDB (e.g. `16609` for SDG&E) |
+| `tou.rate_label` | **required** | Rate plan name as listed in OpenEI URDB (e.g. `"TOU-DR Coastal Baseline Region"`) |
 | `arrays.<name>` | _(none)_ | Named inverter array, e.g. `arrays.south_roof = ["122212345678", "122212345679"]` |
 
 All keys can be overridden via environment variables using the `ENPHASE__` prefix with `__` as the section separator (e.g. `ENPHASE__API__PORT=9090`).

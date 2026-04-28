@@ -54,7 +54,8 @@ async fn main() -> anyhow::Result<()> {
         started_at,
         arrays: config.arrays.clone(),
         tou_api_key: config.tou.openei_api_key.clone(),
-        tou_rate_label: config.tou.sdge_rate_label.clone(),
+        tou_utility_eia_id: config.tou.utility_eia_id,
+        tou_rate_label: config.tou.rate_label.clone(),
     };
 
     let gateway_client = collector::gateway_client::GatewayClient::new(
