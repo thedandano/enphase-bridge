@@ -131,7 +131,7 @@ docker run -d \
   -e ENPHASE__API__PORT="8080" \
   -e ENPHASE__STORAGE__DB_PATH="/data/energy.db" \
   -e ENPHASE__TOU__OPENEI_API_KEY="your_openei_key" \
-  -e ENPHASE__TOU__SDGE_RATE_LABEL="TOU-DR Coastal Baseline Region" \
+  -e ENPHASE__TOU__RATE_LABEL="TOU-DR Coastal Baseline Region" \
   -v enphase-data:/data \
   ghcr.io/thedandano/enphase-bridge:latest
 ```
@@ -145,7 +145,7 @@ cargo build --release
 
 ### 3. Load TOU rates
 
-> These examples assume the default (auth disabled). If you enabled `require_auth`, add `-H "Authorization: Bearer <your-key>"` to every request.
+> Auth is not yet active — no `Authorization` header is required.
 
 ```bash
 curl -X POST http://localhost:8080/api/tou/refresh
@@ -228,8 +228,8 @@ The container uses `network_mode: host` so it can reach your IQ Gateway at its L
 | `polling.interval_secs` | **required** | Poll interval in seconds (min: 15) |
 | `api.host` | **required** | Bind address for the HTTP server (e.g. `0.0.0.0`) |
 | `api.port` | **required** | Port for the HTTP server (e.g. `8080`) |
-| `api.require_auth` | `false` | Enable Bearer token auth |
-| `api.api_key` | _(none)_ | Static API key (≥32 chars); consulted only when `require_auth = true`; omit to auto-generate |
+| `api.require_auth` | — | **Planned, not yet active.** Bearer token auth is implemented but not wired into config. |
+| `api.api_key` | — | **Planned, not yet active.** Static API key (≥32 chars); auto-generated if omitted. |
 | `storage.db_path` | **required** | Path to the SQLite database file (e.g. `./energy.db`) |
 | `tou.openei_api_key` | **required** | OpenEI API key for fetching TOU rate schedules |
 | `tou.utility_eia_id` | **required** | Your utility's EIA ID in the OpenEI URDB (e.g. `16609` for SDG&E) |

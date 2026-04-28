@@ -19,7 +19,7 @@ cargo run
 # Lint and format
 cargo fmt --check        # check formatting (CI enforces this)
 cargo fmt                # auto-format
-cargo clippy -- -D warnings   # lint (CI treats all warnings as errors)
+cargo clippy --all-targets -- -D warnings   # lint; --all-targets covers test code too
 
 # Tests
 cargo test               # all tests (unit + integration)
@@ -29,7 +29,13 @@ cargo test --test unit window_aggregator   # single test module by name
 cargo test test_window_boundary  # single test function by name
 ```
 
-CI runs `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test` on every push/PR.
+CI runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test` on every push/PR.
+
+## Git Hooks
+
+Pre-commit and pre-push hooks live in `.githooks/`. Activate per clone with: `git config core.hooksPath .githooks`
+- **pre-commit**: `cargo fmt --check` + `cargo clippy --all-targets -- -D warnings`
+- **pre-push**: `cargo test`
 
 ## Architecture
 
