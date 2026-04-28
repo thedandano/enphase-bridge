@@ -1,6 +1,6 @@
 services:
-  enphase-ds:
-    image: ghcr.io/${GITHUB_REPOSITORY:-your-user/enphase-ds}:latest
+  enphase-bridge:
+    image: ghcr.io/${GITHUB_REPOSITORY:-your-user/enphase-bridge}:latest
     restart: unless-stopped
     # host network lets the container reach the gateway at 192.168.x.x
     network_mode: host

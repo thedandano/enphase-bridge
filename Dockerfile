@@ -16,7 +16,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY --from=builder /app/target/release/enphase-ds .
+COPY --from=builder /app/target/release/enphase-bridge .
 COPY migrations ./migrations
 EXPOSE 8080
-CMD ["./enphase-ds"]
+CMD ["./enphase-bridge"]
