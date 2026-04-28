@@ -33,3 +33,4 @@ Thumbs.db
 specs/
 .specify/
 .claude/
+.worktrees/
