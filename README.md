@@ -10,7 +10,7 @@ A self-hosted Rust daemon that bridges your **Enphase IQ Gateway** to a local RE
 
 Built for homeowners who want to own their energy data — run it on a Raspberry Pi, a NAS, or any small home server. Pair with Caddy for automatic HTTPS.
 
-**📚 Documentation:** [Architecture](./docs/ARCHITECTURE.md) · [API Key Auth](./docs/API_KEY_AUTH.md) · [Troubleshooting](./docs/TROUBLESHOOTING.md) · [Configuration](#configuration-reference) · [API Reference](#api-reference)
+**📚 Documentation:** [Architecture](./docs/ARCHITECTURE.md) · [API Key Auth](./docs/API_KEY_AUTH.md) · [Data Contract](./docs/DATA_CONTRACT.md) · [Troubleshooting](./docs/TROUBLESHOOTING.md) · [Configuration](#configuration-reference) · [API Reference](#api-reference)
 
 ---
 
@@ -32,10 +32,28 @@ Built for homeowners who want to own their energy data — run it on a Raspberry
 
 | Requirement | Notes |
 |-------------|-------|
-| Enphase IQ Gateway | Reachable on your LAN |
-| Enphase Enlighten account | Needed to generate a local JWT |
-| OpenEI API key | Free — [sign up here](https://apps.openei.org/services/api/signup/) |
-| Rust stable (or Docker) | Install Rust via [rustup.rs](https://rustup.rs) or use any recent Docker install |
+| Enphase IQ Gateway | Reachable on your LAN at a known IP |
+| Enphase gateway JWT | 1-year local access token — [how to get it](#enphase-gateway-jwt) |
+| OpenEI API key | Free — [sign up here](https://apps.openei.org/services/api/signup/) — [how to find your rate label](#openei-api-key--rate-label) |
+| Docker | Any recent install; or Rust stable via [rustup.rs](https://rustup.rs) to build locally |
+
+#### Enphase gateway JWT
+
+1. Log in to [Enlighten](https://enlighten.enphaseenergy.com)
+2. Open your system → **Settings** → **Local API Access** ([direct link](https://enlighten.enphaseenergy.com/app/settings/local-api-access))
+3. Click **Generate token** — this produces a 1-year gateway-scoped JWT (not a cloud API key)
+4. Copy the token — you'll paste it into `config.toml` → `gateway.token`
+
+> **Note:** The Enlighten UI path changes occasionally. If you cannot find "Local API Access", search Enphase's community forums for the current path for your firmware version.
+
+#### OpenEI API key & rate label
+
+1. Sign up for a free account at [OpenEI](https://apps.openei.org/services/api/signup/) and copy your API key
+2. Paste it into `config.toml` → `tou.openei_api_key`
+3. Find your rate schedule in the [OpenEI URDB](https://openei.org/wiki/Utility_Rate_Database): search by utility name and state, then copy the **Name** field (e.g. `"TOU-DR Coastal Baseline Region"` for SDG&E, `"E-TOU-C"` for PG&E)
+4. Paste it into `config.toml` → `tou.sdge_rate_label`
+
+> The `sdge_rate_label` key name is historical (SDG&E was the first supported utility) but it works with **any utility** in the OpenEI database.
 
 ### 1. Clone and configure
 
@@ -68,41 +86,38 @@ openei_api_key  = "your_openei_key"
 sdge_rate_label = "TOU-DR Coastal Baseline Region"
 ```
 
-**Do not commit `config.toml`** — it contains your gateway token. Use environment variables (see [Via environment variables](#via-environment-variables)) to pass secrets in containers.
-
-#### Obtain a gateway JWT
-
-1. Log in to [Enlighten](https://enlighten.enphaseenergy.com)
-2. Open your system → **Settings** → **Local API Access** ([direct link](https://enlighten.enphaseenergy.com/app/settings/local-api-access))
-3. Generate a **local** access token (valid 1 year for homeowner accounts). This is a gateway-scoped JWT, not a cloud API key.
-4. Paste it into `config.toml` → `gateway.token`
-
-> **Note:** The Enlighten UI path changes occasionally. If you cannot find "Local API Access", search Enphase's community forums for the current path for your firmware version.
-
-#### Obtain an OpenEI API key and find your utility rate label
-
-1. Sign up for a free account at [OpenEI](https://apps.openei.org/services/api/signup/)
-2. Once registered, navigate to your [API Key](https://apps.openei.org/services/api/signup/) page and copy your key
-3. Paste it into `config.toml` → `tou.openei_api_key`
-
-4. Find your utility rate schedule label in the [OpenEI URDB](https://openei.org/wiki/Utility_Rate_Database):
-   - Search for your utility name and state
-   - Select your rate schedule (e.g., TOU, time-of-use, or dynamic pricing plan)
-   - Copy the **Name** field (e.g., `"TOU-DR Coastal Baseline Region"` for SDG&E, or `"E-TOU-C"` for PG&E)
-5. Paste it into `config.toml` → `tou.sdge_rate_label`
-
-> The `sdge_rate_label` setting name is historical (SDG&E was the first supported utility), but it works with **any utility** in the OpenEI database. Use your utility's actual rate label, whatever it is.
+**Do not commit `config.toml`** — it contains your gateway token. Use environment variables (see [Configuration reference](#configuration-reference)) to pass secrets in containers.
 
 ### 2. Run
 
-**From source:**
+**Docker Compose (recommended):**
 
-```bash
-cargo build --release
-./target/release/enphase-bridge
+Place your `config.toml` in a deployment directory alongside a `docker-compose.yml`:
+
+```yaml
+services:
+  enphase-bridge:
+    image: ghcr.io/thedandano/enphase-bridge:latest
+    container_name: enphase-bridge
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      - enphase-data:/app/data
+    environment:
+      RUST_LOG: info
+      ENPHASE__STORAGE__DB_PATH: /app/data/energy.db
+
+volumes:
+  enphase-data:
 ```
 
-**Docker (single container):**
+```bash
+docker compose up -d
+docker compose logs -f
+```
+
+**Docker run (single container):**
 
 ```bash
 docker run -d \
@@ -120,47 +135,11 @@ docker run -d \
   ghcr.io/thedandano/enphase-bridge:latest
 ```
 
-**Docker Compose (recommended for production):**
-
-Create a `docker-compose.yml` in your deployment directory:
-
-```yaml
-version: '3.8'
-
-services:
-  enphase-bridge:
-    image: ghcr.io/thedandano/enphase-bridge:latest
-    container_name: enphase-bridge
-    restart: unless-stopped
-    network_mode: host
-    environment:
-      ENPHASE__GATEWAY__HOST: "192.168.1.100"
-      ENPHASE__GATEWAY__TOKEN: "eyJ..."
-      ENPHASE__POLLING__INTERVAL_SECS: "60"
-      ENPHASE__API__HOST: "0.0.0.0"
-      ENPHASE__API__PORT: "8080"
-      ENPHASE__STORAGE__DB_PATH: "/data/energy.db"
-      ENPHASE__TOU__OPENEI_API_KEY: "your_openei_api_key"
-      ENPHASE__TOU__SDGE_RATE_LABEL: "TOU-DR Coastal Baseline Region"
-    volumes:
-      - enphase-data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
-volumes:
-  enphase-data:
-    driver: local
-```
-
-Then start with:
+**Build and run locally:**
 
 ```bash
-docker compose up -d
-docker compose logs -f
+cargo build --release
+./target/release/enphase-bridge
 ```
 
 ### 3. Load TOU rates
@@ -184,7 +163,7 @@ curl http://localhost:8080/api/health
 
 ## API reference
 
-All routes return JSON. Auth is disabled by default — see [API Key Auth](./docs/API_KEY_AUTH.md) to enable it.
+All routes return JSON. Auth is disabled by default — see [API Key Auth](./docs/API_KEY_AUTH.md) to enable it. Full request/response schemas are in [Data Contract](./docs/DATA_CONTRACT.md).
 
 When auth is enabled, all routes except `/api/health` require a Bearer token:
 
