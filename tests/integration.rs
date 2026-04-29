@@ -9,3 +9,6 @@ mod api_inverter_test;
 
 #[path = "integration/trueup_test.rs"]
 mod trueup_test;
+
+#[path = "integration/gateway_client_test.rs"]
+mod gateway_client_test;

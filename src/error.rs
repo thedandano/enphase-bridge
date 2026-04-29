@@ -32,6 +32,8 @@ pub enum GatewayError {
     MalformedResponse(String),
     #[error("gateway unreachable: {0}")]
     Unreachable(String),
+    #[error("unauthorized (401) — session token may have expired")]
+    Unauthorized,
 }
 
 #[derive(Debug, Error)]

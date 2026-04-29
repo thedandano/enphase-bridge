@@ -9,3 +9,6 @@ mod window_aggregator_test;
 
 #[path = "unit/snapshot_test.rs"]
 mod snapshot_test;
+
+#[path = "unit/gateway_client_test.rs"]
+mod gateway_client_test;

@@ -2,6 +2,7 @@ use crate::error::{AppError, GatewayError};
 use crate::inverter::snapshot::{InverterReport, parse_snapshots};
 use crate::storage::models::MicroinverterSnapshot;
 use reqwest::Client;
+use reqwest::header::SET_COOKIE;
 use serde::Deserialize;
 use tracing::{debug, error, instrument};
 
@@ -34,6 +35,7 @@ pub struct GatewayClient {
     pub(crate) base_url: String,
     pub(crate) token: String,
     pub(crate) client: Client,
+    session_id: Option<String>,
 }
 
 impl GatewayClient {
@@ -55,26 +57,80 @@ impl GatewayClient {
             base_url,
             token,
             client,
+            session_id: None,
         }
     }
 
-    #[instrument(skip(self), fields(endpoint = "/ivp/meters/readings"))]
-    pub async fn get_meter_readings(&self) -> Result<MeterReadings, AppError> {
-        let url = format!("{}/ivp/meters/readings", self.base_url);
-        debug!(event = "gateway_request", url = %url);
+    /// Exchange the cloud JWT for a local session token via POST /auth/check_jwt.
+    /// IQ Gateway firmware 7.x+ requires this session cookie for /ivp/ endpoints.
+    pub async fn check_jwt(&mut self) -> Result<(), AppError> {
+        let url = format!("{}/auth/check_jwt", self.base_url);
+        debug!(event = "check_jwt_request", url = %url);
 
         let response = self
             .client
-            .get(&url)
+            .post(&url)
             .header("Authorization", format!("Bearer {}", self.token))
             .send()
             .await
-            .map_err(|e| {
-                error!(event = "gateway_request_failed", error = %e);
-                AppError::Gateway(GatewayError::Request(e))
-            })?;
+            .map_err(|e| AppError::Gateway(GatewayError::Request(e)))?;
 
         let status = response.status();
+        if !status.is_success() {
+            error!(event = "session_auth_failed", status = %status);
+            return Err(AppError::Gateway(GatewayError::Unauthorized));
+        }
+
+        self.session_id = response
+            .headers()
+            .get(SET_COOKIE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(parse_session_cookie);
+
+        debug!(
+            event = "session_acquired",
+            has_session = self.session_id.is_some()
+        );
+        Ok(())
+    }
+
+    fn cookie_header(&self) -> Option<String> {
+        self.session_id.as_ref().map(|id| format!("sessionId={id}"))
+    }
+
+    #[instrument(skip(self), fields(endpoint = "/ivp/meters/readings"))]
+    pub async fn get_meter_readings(&mut self) -> Result<MeterReadings, AppError> {
+        match self.request_meter_readings().await {
+            Err(AppError::Gateway(GatewayError::Unauthorized)) => {
+                self.check_jwt().await?;
+                self.request_meter_readings().await
+            }
+            other => other,
+        }
+    }
+
+    async fn request_meter_readings(&self) -> Result<MeterReadings, AppError> {
+        let url = format!("{}/ivp/meters/readings", self.base_url);
+        debug!(event = "gateway_request", url = %url);
+
+        let mut req = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.token));
+
+        if let Some(cookie) = self.cookie_header() {
+            req = req.header("Cookie", cookie);
+        }
+
+        let response = req.send().await.map_err(|e| {
+            error!(event = "gateway_request_failed", error = %e);
+            AppError::Gateway(GatewayError::Request(e))
+        })?;
+
+        let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(AppError::Gateway(GatewayError::Unauthorized));
+        }
         if !status.is_success() {
             error!(event = "gateway_error_status", status = %status);
             return Err(AppError::Gateway(GatewayError::Unreachable(format!(
@@ -131,4 +187,14 @@ impl GatewayClient {
 
         Ok(parse_snapshots(reports, window_start))
     }
+}
+
+/// Extract the sessionId value from a Set-Cookie header value.
+/// Expects format: "sessionId=<value>; attr; attr"
+pub fn parse_session_cookie(header_value: &str) -> Option<String> {
+    header_value
+        .split(';')
+        .next()
+        .and_then(|s| s.trim().strip_prefix("sessionId="))
+        .map(str::to_owned)
 }

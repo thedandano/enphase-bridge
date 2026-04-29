@@ -26,7 +26,12 @@ impl Scheduler {
         }
     }
 
-    pub async fn run(self) {
+    pub async fn run(mut self) {
+        if let Err(e) = self.gateway.check_jwt().await {
+            error!(event = "session_auth_failed", error = %e, message = "cannot acquire gateway session; scheduler halted");
+            return;
+        }
+
         let mut ticker = time::interval(self.interval);
         let mut last_reading = self.load_persisted_reading().await;
 

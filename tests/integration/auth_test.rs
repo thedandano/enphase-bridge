@@ -23,7 +23,7 @@ async fn test_gateway_auth_and_poll() {
         }
     };
 
-    let client = GatewayClient::new(host, token);
+    let mut client = GatewayClient::new(host, token);
     let result = client.get_meter_readings().await;
 
     assert!(
