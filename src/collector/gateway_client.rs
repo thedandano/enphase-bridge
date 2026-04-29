@@ -4,7 +4,7 @@ use crate::storage::models::MicroinverterSnapshot;
 use reqwest::Client;
 use reqwest::header::SET_COOKIE;
 use serde::Deserialize;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, instrument, warn};
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -14,8 +14,10 @@ pub struct MeterReadings {
     pub grid_w_now: f64,
     /// Lifetime Wh produced by solar (actEnergyDlvd on production meter)
     pub production_cum_wh: f64,
-    /// Lifetime Wh consumed by home (actEnergyDlvd on consumption meter)
-    pub consumption_cum_wh: f64,
+    /// Lifetime Wh imported from grid (actEnergyDlvd on net meter)
+    pub grid_import_cum_wh: f64,
+    /// Lifetime Wh exported to grid (actEnergyRcvd on net meter)
+    pub grid_export_cum_wh: f64,
 }
 
 const EID_PRODUCTION: u64 = 704643328;
@@ -29,6 +31,8 @@ struct MeterObject {
     active_power: f64,
     #[serde(rename = "actEnergyDlvd", default)]
     act_energy_dlvd: f64,
+    #[serde(rename = "actEnergyRcvd", default)]
+    act_energy_rcvd: f64,
 }
 
 pub struct GatewayClient {
@@ -148,13 +152,21 @@ impl GatewayClient {
         let cons = meters.iter().find(|m| m.eid == EID_CONSUMPTION);
         let net = meters.iter().find(|m| m.eid == EID_NET);
 
+        if net.is_none() {
+            warn!(
+                event = "eid_net_absent",
+                message = "EID_NET not found in meter readings; grid_import_cum_wh and grid_export_cum_wh will be 0"
+            );
+        }
+
         Ok(MeterReadings {
             production_w_now: prod.map(|m| m.active_power).unwrap_or(0.0),
             // Consumption activePower is negative in Enphase convention — negate to positive watts
             consumption_w_now: cons.map(|m| -m.active_power).unwrap_or(0.0),
             grid_w_now: net.map(|m| m.active_power).unwrap_or(0.0),
             production_cum_wh: prod.map(|m| m.act_energy_dlvd).unwrap_or(0.0),
-            consumption_cum_wh: cons.map(|m| m.act_energy_dlvd).unwrap_or(0.0),
+            grid_import_cum_wh: net.map(|m| m.act_energy_dlvd).unwrap_or(0.0),
+            grid_export_cum_wh: net.map(|m| m.act_energy_rcvd).unwrap_or(0.0),
         })
     }
 

@@ -9,7 +9,8 @@ use crate::storage::{config_store, energy_window as ew_store, inverter_snapshot 
 
 const KEY_LAST_TS: &str = "last_poll_timestamp";
 const KEY_PROD_WH: &str = "last_cumulative_production_wh";
-const KEY_CONS_WH: &str = "last_cumulative_consumption_wh";
+const KEY_GRID_IMPORT_WH: &str = "last_cumulative_grid_import_wh";
+const KEY_GRID_EXPORT_WH: &str = "last_cumulative_grid_export_wh";
 
 pub struct Scheduler {
     gateway: GatewayClient,
@@ -56,7 +57,8 @@ impl Scheduler {
             let curr = CumulativeReading {
                 timestamp: now,
                 production_wh: readings.production_cum_wh,
-                consumption_wh: readings.consumption_cum_wh,
+                grid_import_cum_wh: readings.grid_import_cum_wh,
+                grid_export_cum_wh: readings.grid_export_cum_wh,
             };
 
             if let Some(prev) = &last_reading {
@@ -114,18 +116,35 @@ impl Scheduler {
     async fn load_persisted_reading(&self) -> Option<CumulativeReading> {
         let ts = config_store::get(&self.pool, KEY_LAST_TS).await.ok()??;
         let prod = config_store::get(&self.pool, KEY_PROD_WH).await.ok()??;
-        let cons = config_store::get(&self.pool, KEY_CONS_WH).await.ok()??;
+        let grid_import = config_store::get(&self.pool, KEY_GRID_IMPORT_WH)
+            .await
+            .ok()??;
+        let grid_export = config_store::get(&self.pool, KEY_GRID_EXPORT_WH)
+            .await
+            .ok()??;
         Some(CumulativeReading {
             timestamp: ts.parse().ok()?,
             production_wh: prod.parse().ok()?,
-            consumption_wh: cons.parse().ok()?,
+            grid_import_cum_wh: grid_import.parse().ok()?,
+            grid_export_cum_wh: grid_export.parse().ok()?,
         })
     }
 
     async fn persist_reading(&self, r: &CumulativeReading) {
         let _ = config_store::set(&self.pool, KEY_LAST_TS, &r.timestamp.to_string()).await;
         let _ = config_store::set(&self.pool, KEY_PROD_WH, &r.production_wh.to_string()).await;
-        let _ = config_store::set(&self.pool, KEY_CONS_WH, &r.consumption_wh.to_string()).await;
+        let _ = config_store::set(
+            &self.pool,
+            KEY_GRID_IMPORT_WH,
+            &r.grid_import_cum_wh.to_string(),
+        )
+        .await;
+        let _ = config_store::set(
+            &self.pool,
+            KEY_GRID_EXPORT_WH,
+            &r.grid_export_cum_wh.to_string(),
+        )
+        .await;
     }
 }
 
