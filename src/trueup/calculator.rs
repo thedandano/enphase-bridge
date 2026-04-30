@@ -2,7 +2,7 @@ use crate::error::{AppError, TouError};
 use crate::storage::models::{EnergyWindow, TouRateSchedule};
 use chrono::{Datelike, TimeZone, Timelike};
 use chrono_tz::America::Los_Angeles;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 #[derive(Debug, Default, Clone)]
 pub struct PeriodSummary {
@@ -42,7 +42,8 @@ pub fn calculate(
     let weekday_sched = parse_schedule(&rate_json["energyweekdayschedule"])?;
     let weekend_sched = parse_schedule(&rate_json["energyweekendschedule"])?;
     let period_rates = parse_period_rates(&rate_json["energyratestructure"])?;
-    let period_map = build_period_map(&period_rates);
+    let month_maps =
+        build_per_month_maps(schedule.id, &weekday_sched, &weekend_sched, &period_rates)?;
 
     tracing::info!(
         event = "trueup_calc_start",
@@ -50,8 +51,6 @@ pub fn calculate(
         schedule_id = %schedule.id,
         period_count = %period_rates.len(),
     );
-
-    tracing::debug!(event = "tou_period_map", period_map = ?period_map);
 
     let mut peak = PeriodSummary::default();
     let mut off_peak = PeriodSummary::default();
@@ -91,16 +90,13 @@ pub fn calculate(
                 )))
             })?;
 
-        let rates = period_rates.get(period_idx).ok_or_else(|| {
+        let tou_period = month_maps[month].get(&period_idx).copied().ok_or_else(|| {
             AppError::Tou(TouError::ParseError(format!(
-                "period index {period_idx} out of range"
+                "period_idx={period_idx} not in month={month} map"
             )))
         })?;
 
-        let tou_period = period_map
-            .get(&period_idx)
-            .copied()
-            .unwrap_or(TouPeriod::OffPeak);
+        let rates = &period_rates[period_idx]; // invariant: build_per_month_maps pre-validated this index
 
         let import_kwh = window.wh_grid_import / 1000.0;
         let export_kwh = window.wh_grid_export / 1000.0;
@@ -195,29 +191,86 @@ fn parse_period_rates(val: &serde_json::Value) -> Result<Vec<PeriodRate>, AppErr
         .collect()
 }
 
-fn build_period_map(period_rates: &[PeriodRate]) -> HashMap<usize, TouPeriod> {
-    let mut ranked: Vec<(usize, f64)> = period_rates
-        .iter()
-        .enumerate()
-        .map(|(i, p)| (i, p.rate))
-        .collect();
-    ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+fn build_per_month_maps(
+    schedule_id: i64,
+    weekday_sched: &[Vec<usize>],
+    weekend_sched: &[Vec<usize>],
+    period_rates: &[PeriodRate],
+) -> Result<[HashMap<usize, TouPeriod>; 12], AppError> {
+    let mut maps: [HashMap<usize, TouPeriod>; 12] = std::array::from_fn(|_| HashMap::new());
 
-    let n = ranked.len();
-    if !(2..=4).contains(&n) {
-        tracing::warn!(event = "tou_period_count_unexpected", n = %n);
-    }
+    for (month, month_map_slot) in maps.iter_mut().enumerate() {
+        let wd = weekday_sched.get(month).map(Vec::as_slice).unwrap_or(&[]);
+        let we = weekend_sched.get(month).map(Vec::as_slice).unwrap_or(&[]);
 
-    let mut map = HashMap::new();
-    for (rank, (idx, _)) in ranked.iter().enumerate() {
-        let period = if rank == 0 {
-            TouPeriod::Peak
-        } else if n >= 3 && rank == n - 1 {
-            TouPeriod::SuperOffPeak
+        // Union of active period indices — BTreeSet gives sorted, deterministic iteration
+        let active: BTreeSet<usize> = wd.iter().chain(we.iter()).copied().collect();
+        let active_count = active.len();
+
+        if active_count < 2 {
+            tracing::warn!(
+                event = "tou_month_degenerate",
+                schedule_id = schedule_id,
+                month = month,
+                active_count = active_count,
+                reason = if active_count == 0 {
+                    "no_periods"
+                } else {
+                    "single_period"
+                },
+            );
+        }
+
+        // Validate all indices and collect (index, rate) pairs.
+        // BTreeSet iteration is ascending by index, so equal-rate ties preserve lower-index order
+        // after the stable sort below.
+        let mut ranked: Vec<(usize, f64)> = active
+            .into_iter()
+            .map(|idx| {
+                period_rates
+                    .get(idx)
+                    .map(|pr| (idx, pr.rate))
+                    .ok_or_else(|| {
+                        AppError::Tou(TouError::ParseError(format!(
+                            "period_idx={idx} missing in energyratestructure for month={month}"
+                        )))
+                    })
+            })
+            .collect::<Result<Vec<_>, AppError>>()?;
+
+        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let n = ranked.len();
+        let peak_idx = ranked.first().map(|(i, _)| *i);
+        let super_off_peak_idx = if n >= 3 {
+            ranked.last().map(|(i, _)| *i)
         } else {
-            TouPeriod::OffPeak
+            None
         };
-        map.insert(*idx, period);
+
+        let mut month_map = HashMap::new();
+        for (rank, (idx, _)) in ranked.iter().enumerate() {
+            let period = if rank == 0 {
+                TouPeriod::Peak
+            } else if n >= 3 && rank == n - 1 {
+                TouPeriod::SuperOffPeak
+            } else {
+                TouPeriod::OffPeak
+            };
+            month_map.insert(*idx, period);
+        }
+
+        tracing::info!(
+            event = "tou_period_map_built",
+            schedule_id = schedule_id,
+            month = month,
+            active_count = active_count,
+            peak_idx = ?peak_idx,
+            super_off_peak_idx = ?super_off_peak_idx,
+        );
+
+        *month_map_slot = month_map;
     }
-    map
+
+    Ok(maps)
 }
