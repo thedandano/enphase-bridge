@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/thedandano/enphase-bridge/compare/enphase-bridge-v0.1.0...enphase-bridge-v0.2.0) (2026-04-30)
+
+
+### Features
+
+* fix TOU silent failures, add observability and lifecycle management ([4935d89](https://github.com/thedandano/enphase-bridge/commit/4935d8979ee70b588f37f87e8a7a886f9de51f8e))
+
 ## 0.1.0 (2026-04-30)
 
 
