@@ -111,10 +111,12 @@ impl Scheduler {
                     }
 
                     self.persist_reading(&curr).await;
+                    last_reading = Some(curr);
                 }
+                // Mid-window tick: anchor stays frozen at the previous boundary reading.
+            } else {
+                last_reading = Some(curr);
             }
-
-            last_reading = Some(curr);
         }
     }
 
