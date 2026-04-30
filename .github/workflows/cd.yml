@@ -4,7 +4,8 @@ on:
   workflow_run:
     workflows: [CI]
     types: [completed]
-    branches: [main]
+    # No branch filter — tag-triggered CI runs have head_branch == the tag name (e.g. v0.1.0),
+    # which the branches filter would reject. Scoping is done via job-level if conditions below.
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
@@ -12,7 +13,10 @@ env:
 jobs:
   build:
     name: Build (${{ matrix.arch }})
-    if: github.event.workflow_run.conclusion == 'success'
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.head_branch == 'main' ||
+       startsWith(github.event.workflow_run.head_branch, 'v'))
     runs-on: ${{ matrix.runner }}
 
     strategy:
@@ -96,6 +100,9 @@ jobs:
 
       - name: Create and push multi-arch manifest
         working-directory: /tmp/digests
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
           refs=()
@@ -106,9 +113,14 @@ jobs:
             fi
             refs+=("${IMAGE}@sha256:$(cat "$arch")")
           done
-          docker buildx imagetools create \
-            -t "${IMAGE}:latest" \
-            -t "${IMAGE}:${{ github.event.workflow_run.head_sha }}" \
-            "${refs[@]}"
-          docker buildx imagetools inspect "${IMAGE}:latest"
+          short_sha="${HEAD_SHA:0:7}"
+          tags=(-t "${IMAGE}:${short_sha}")
+          if [[ "${HEAD_BRANCH}" == v* ]]; then
+            tags+=(-t "${IMAGE}:${HEAD_BRANCH}" -t "${IMAGE}:latest")
+            echo "Publishing version tag: ${HEAD_BRANCH}"
+          else
+            tags+=(-t "${IMAGE}:latest")
+          fi
+          docker buildx imagetools create "${tags[@]}" "${refs[@]}"
+          docker buildx imagetools inspect "${IMAGE}:${short_sha}"
 
