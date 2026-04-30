@@ -105,7 +105,13 @@ pub async fn get_estimate(
         tou_schedule_id: schedule.id,
     };
     if let Err(e) = true_up::insert(&state.pool, &estimate).await {
-        tracing::error!(event = "trueup_persist_failed", error = %e);
+        tracing::error!(
+            event = "trueup_persist_failed",
+            schedule_id = schedule.id,
+            period_start = period_start,
+            period_end = period_end,
+            error = %e,
+        );
     }
 
     Ok(Json(EstimateResponse {
