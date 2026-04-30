@@ -4,7 +4,7 @@ use crate::storage::models::MicroinverterSnapshot;
 use reqwest::Client;
 use reqwest::header::SET_COOKIE;
 use serde::Deserialize;
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, error, info, instrument};
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -12,11 +12,11 @@ pub struct MeterReadings {
     pub production_w_now: f64,
     pub consumption_w_now: f64,
     pub grid_w_now: f64,
-    /// Lifetime Wh produced by solar (actEnergyDlvd on production meter)
+    /// Lifetime Wh produced by solar (actEnergyDlvd on production meter, EID 704643328)
     pub production_cum_wh: f64,
-    /// Lifetime Wh imported from grid (actEnergyDlvd on net meter)
+    /// Lifetime Wh imported from grid (actEnergyDlvd on net-consumption meter, EID 704643584)
     pub grid_import_cum_wh: f64,
-    /// Lifetime Wh exported to grid (actEnergyRcvd on net meter)
+    /// Lifetime Wh exported to grid (actEnergyRcvd on net-consumption meter, EID 704643584)
     pub grid_export_cum_wh: f64,
 }
 
@@ -33,6 +33,14 @@ struct MeterObject {
     act_energy_dlvd: f64,
     #[serde(rename = "actEnergyRcvd", default)]
     act_energy_rcvd: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct MeterInfo {
+    eid: u64,
+    #[serde(rename = "measurementType")]
+    measurement_type: String,
+    state: String,
 }
 
 pub struct GatewayClient {
@@ -98,6 +106,76 @@ impl GatewayClient {
         Ok(())
     }
 
+    /// Probe GET /ivp/meters to validate that the net-consumption meter is present and enabled.
+    /// Called once at scheduler startup after check_jwt(); halts if the required meter is absent.
+    pub async fn probe_meters(&mut self) -> Result<(), AppError> {
+        let url = format!("{}/ivp/meters", self.base_url);
+        debug!(event = "probe_meters_request", url = %url);
+
+        let mut req = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.token));
+
+        if let Some(cookie) = self.cookie_header() {
+            req = req.header("Cookie", cookie);
+        }
+
+        let response = req.send().await.map_err(|e| {
+            error!(event = "probe_meters_failed", error = %e);
+            AppError::Gateway(GatewayError::Request(e))
+        })?;
+
+        if !response.status().is_success() {
+            return Err(AppError::Gateway(GatewayError::Unreachable(format!(
+                "meters probe returned HTTP {}",
+                response.status()
+            ))));
+        }
+
+        let meters: Vec<MeterInfo> = response.json().await.map_err(|e| {
+            error!(event = "probe_meters_parse_error", error = %e);
+            AppError::Gateway(GatewayError::MalformedResponse(e.to_string()))
+        })?;
+
+        let net_cons = meters
+            .iter()
+            .find(|m| m.measurement_type == "net-consumption");
+
+        match net_cons {
+            None => {
+                let seen: Vec<&str> = meters.iter().map(|m| m.measurement_type.as_str()).collect();
+                error!(
+                    event = "required_meter_absent",
+                    meter_type = "net-consumption",
+                    seen_types = ?seen
+                );
+                Err(AppError::Gateway(GatewayError::MissingMeter(
+                    "net-consumption".to_string(),
+                )))
+            }
+            Some(m) if m.state != "enabled" => {
+                error!(
+                    event = "meter_disabled",
+                    meter_type = "net-consumption",
+                    state = %m.state
+                );
+                Err(AppError::Gateway(GatewayError::MissingMeter(format!(
+                    "net-consumption meter is {} (not enabled)",
+                    m.state
+                ))))
+            }
+            Some(m) => {
+                info!(
+                    event = "meters_discovered",
+                    net_consumption_eid = m.eid,
+                    net_consumption_state = %m.state
+                );
+                Ok(())
+            }
+        }
+    }
+
     fn cookie_header(&self) -> Option<String> {
         self.session_id.as_ref().map(|id| format!("sessionId={id}"))
     }
@@ -149,24 +227,23 @@ impl GatewayClient {
         })?;
 
         let prod = meters.iter().find(|m| m.eid == EID_PRODUCTION);
-        let cons = meters.iter().find(|m| m.eid == EID_CONSUMPTION);
+        let cons = meters
+            .iter()
+            .find(|m| m.eid == EID_CONSUMPTION)
+            .ok_or_else(|| {
+                AppError::Gateway(GatewayError::MissingMeter("net-consumption".to_string()))
+            })?;
+        // EID_NET is undocumented; used only for optional real-time grid_w_now (display only, not window math)
         let net = meters.iter().find(|m| m.eid == EID_NET);
-
-        if net.is_none() {
-            warn!(
-                event = "eid_net_absent",
-                message = "EID_NET not found in meter readings; grid_import_cum_wh and grid_export_cum_wh will be 0"
-            );
-        }
 
         Ok(MeterReadings {
             production_w_now: prod.map(|m| m.active_power).unwrap_or(0.0),
             // Consumption activePower is negative in Enphase convention — negate to positive watts
-            consumption_w_now: cons.map(|m| -m.active_power).unwrap_or(0.0),
+            consumption_w_now: -cons.active_power,
             grid_w_now: net.map(|m| m.active_power).unwrap_or(0.0),
             production_cum_wh: prod.map(|m| m.act_energy_dlvd).unwrap_or(0.0),
-            grid_import_cum_wh: net.map(|m| m.act_energy_dlvd).unwrap_or(0.0),
-            grid_export_cum_wh: net.map(|m| m.act_energy_rcvd).unwrap_or(0.0),
+            grid_import_cum_wh: cons.act_energy_dlvd,
+            grid_export_cum_wh: cons.act_energy_rcvd,
         })
     }
 

@@ -55,10 +55,10 @@ Returns 15-minute energy windows for a time range.
 | Field | Type | Description |
 |-------|------|-------------|
 | `window_start` | UnixTimestamp | Start of the 15-min bucket |
-| `wh_produced` | float | Solar production in Wh |
-| `wh_consumed` | float | Site consumption in Wh |
-| `wh_grid_import` | float | Energy drawn from the grid in Wh |
-| `wh_grid_export` | float | Energy exported to the grid in Wh |
+| `wh_produced` | float | Solar production in Wh (delta of `actEnergyDlvd` on production meter, EID 704643328) |
+| `wh_consumed` | float | Site consumption in Wh — derived from energy balance: `wh_produced + wh_grid_import − wh_grid_export` (never negative) |
+| `wh_grid_import` | float | Energy drawn from the grid in Wh (delta of `actEnergyDlvd` on net-consumption meter, EID 704643584; stalls at 0 during solar export — correct behaviour) |
+| `wh_grid_export` | float | Energy exported to the grid in Wh (delta of `actEnergyRcvd` on net-consumption meter, EID 704643584; accumulates during solar export) |
 | `is_complete` | boolean | `false` if the window is still in progress |
 
 **Response 400** — invalid date or `start >= end`

@@ -96,6 +96,51 @@ fn test_compute_delta_never_negative() {
 }
 
 #[test]
+fn test_compute_delta_export_consumed_nonzero_and_distinct_from_produced() {
+    // Regression: Bug v1 = wh_consumed drops to 0 during export; Bug v2 = wh_consumed == wh_produced.
+    // prev=(prod=10000, import=200, export=50), curr=(prod=10500, import=200 flat, export=170)
+    // produced=500, grid_import=0, grid_export=120 → consumed = 500+0-120 = 380
+    let prev = CumulativeReading {
+        timestamp: 1704067200,
+        production_wh: 10000.0,
+        grid_import_cum_wh: 200.0,
+        grid_export_cum_wh: 50.0,
+    };
+    let curr = CumulativeReading {
+        timestamp: 1704068100,
+        production_wh: 10500.0,
+        grid_import_cum_wh: 200.0,
+        grid_export_cum_wh: 170.0,
+    };
+
+    let w = compute_delta(1704067200, &prev, &curr, true);
+
+    assert!(
+        w.wh_consumed > 0.0,
+        "Bug v1 guard: wh_consumed must be > 0 during export"
+    );
+    assert!(
+        (w.wh_consumed - 380.0).abs() < 1e-6,
+        "wh_consumed should be 380.0, got {}",
+        w.wh_consumed
+    );
+    assert!(
+        (w.wh_consumed - w.wh_produced).abs() > 1e-6,
+        "Bug v2 guard: wh_consumed must != wh_produced"
+    );
+    assert!(
+        (w.wh_grid_export - 120.0).abs() < 1e-6,
+        "wh_grid_export should be 120.0, got {}",
+        w.wh_grid_export
+    );
+    assert!(
+        (w.wh_grid_import - 0.0).abs() < 1e-6,
+        "wh_grid_import should be 0.0, got {}",
+        w.wh_grid_import
+    );
+}
+
+#[test]
 fn test_compute_delta_stalled_import_during_export() {
     // Regression: grid_import stalls at 0 while solar is exporting.
     // produced=20, grid_import=0, grid_export=9.863 → consumed = 20+0-9.863 = 10.137 > 0

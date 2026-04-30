@@ -63,7 +63,8 @@ The scheduler persists the last cumulative reading (timestamp + Wh) to the `conf
 
 ### Key design decisions
 
-- **Cumulative-to-delta conversion**: The gateway exposes lifetime `actEnergyDlvd`/`actEnergyRcvd` counters. `window_aggregator.rs` computes deltas between consecutive readings. Grid import and export are read from the net meter's `actEnergyDlvd` and `actEnergyRcvd` counters directly; house consumption is derived from the energy balance (`produced + grid_import - grid_export`).
+- **Cumulative-to-delta conversion**: The gateway exposes lifetime `actEnergyDlvd`/`actEnergyRcvd` counters. `window_aggregator.rs` computes deltas between consecutive readings. Grid import (`grid_import_cum_wh`) and grid export (`grid_export_cum_wh`) are both sourced from the net-consumption meter (EID `704643584`, `measurementType: "net-consumption"`) — the only documented bidirectional top-level meter per the Enphase IQ Gateway Local APIs tech brief (Jan 2023). House consumption is derived from the energy balance (`produced + grid_import - grid_export`).
+- **Startup meter probe**: At scheduler startup (after `check_jwt()`), `probe_meters()` calls `GET /ivp/meters` to discover available meters by `measurementType` and validates that a `net-consumption` meter with `state: "enabled"` is present. The scheduler halts with a `GatewayError::MissingMeter` if absent — no silent fallback to zero.
 - **Single SQLite connection** (`max_connections(1)`) with WAL mode — avoids write contention while allowing concurrent reads.
 - **Gateway session auth (firmware 7.x+)**: At scheduler startup, `check_jwt()` POSTs to `/auth/check_jwt` with the Bearer JWT to exchange it for a session cookie. `get_meter_readings()` also auto-retries with a fresh `check_jwt()` on any 401, so session expiry is handled transparently.
 - **Gateway JWT is not verified** — `token_manager.rs` only decodes the `exp` claim to warn/fail on expiry. The gateway's ES256 signature is not validated.

@@ -33,6 +33,11 @@ impl Scheduler {
             return;
         }
 
+        if let Err(e) = self.gateway.probe_meters().await {
+            error!(event = "meter_probe_failed", error = %e, message = "required meter absent or unreachable; scheduler halted");
+            return;
+        }
+
         let mut ticker = time::interval(self.interval);
         let mut last_reading = self.load_persisted_reading().await;
 

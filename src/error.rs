@@ -34,6 +34,8 @@ pub enum GatewayError {
     Unreachable(String),
     #[error("unauthorized (401) — session token may have expired")]
     Unauthorized,
+    #[error("required meter absent: {0}")]
+    MissingMeter(String),
 }
 
 #[derive(Debug, Error)]
@@ -94,6 +96,9 @@ impl IntoResponse for AppError {
             ),
             AppError::Tou(TouError::UpstreamUnavailable(m)) => {
                 (StatusCode::BAD_GATEWAY, "upstream_unavailable", m.clone())
+            }
+            AppError::Gateway(GatewayError::MissingMeter(m)) => {
+                (StatusCode::BAD_GATEWAY, "required_meter_absent", m.clone())
             }
             _ => {
                 tracing::error!(error = %self, "internal error");
