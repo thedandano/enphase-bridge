@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/thedandano/enphase-bridge/compare/enphase-bridge-v0.2.1...enphase-bridge-v0.2.2) (2026-04-30)
+
+
+### Bug Fixes
+
+* scheduler anchor bug — energy windows underreported by ~15× ([1b780c2](https://github.com/thedandano/enphase-bridge/commit/1b780c2c51c927fa153026dc4c08dffefd83fde1)), closes [#7](https://github.com/thedandano/enphase-bridge/issues/7)
+
 ## [0.2.1](https://github.com/thedandano/enphase-bridge/compare/enphase-bridge-v0.2.0...enphase-bridge-v0.2.1) (2026-04-30)
 
 
