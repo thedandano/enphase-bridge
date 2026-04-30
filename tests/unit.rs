@@ -17,3 +17,6 @@ mod gateway_client_test;
 
 #[path = "unit/openei_client_test.rs"]
 mod openei_client_test;
+
+#[path = "unit/scheduler_test.rs"]
+mod scheduler_test;

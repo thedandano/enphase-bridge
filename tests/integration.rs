@@ -17,3 +17,6 @@ mod gateway_client_test;
 
 #[path = "integration/tou_refresh_test.rs"]
 mod tou_refresh_test;
+
+#[path = "integration/scheduler_test.rs"]
+mod scheduler_test;
