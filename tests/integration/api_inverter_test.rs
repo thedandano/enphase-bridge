@@ -31,6 +31,7 @@ fn make_state(pool: SqlitePool) -> AppState {
         tou_api_key: String::new(),
         tou_utility_eia_id: 0,
         tou_rate_label: String::new(),
+        tou_openei_base_url: String::new(),
     }
 }
 

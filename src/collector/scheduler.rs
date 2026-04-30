@@ -58,7 +58,7 @@ impl Scheduler {
                 }
             };
 
-            let now = unix_now();
+            let now = crate::util::unix_now();
             let curr = CumulativeReading {
                 timestamp: now,
                 production_wh: readings.production_cum_wh,
@@ -151,11 +151,4 @@ impl Scheduler {
         )
         .await;
     }
-}
-
-fn unix_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
 }

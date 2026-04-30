@@ -7,3 +7,4 @@ pub mod inverter;
 pub mod storage;
 pub mod tou;
 pub mod trueup;
+pub mod util;

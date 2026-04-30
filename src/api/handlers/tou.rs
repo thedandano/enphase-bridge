@@ -15,14 +15,15 @@ struct RefreshResponse {
 }
 
 pub async fn refresh_tou(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    let client = OpenEiClient::new(
+    let client = OpenEiClient::with_base_url(
         state.tou_api_key.clone(),
         state.tou_utility_eia_id,
         state.tou_rate_label.clone(),
+        state.tou_openei_base_url.clone(),
     );
     let fetched = client.fetch().await?;
 
-    let fetched_at = unix_now();
+    let fetched_at = crate::util::unix_now();
     let schedule_id = tou_schedule::insert(
         &state.pool,
         fetched_at,
@@ -46,11 +47,4 @@ pub async fn refresh_tou(State(state): State<AppState>) -> Result<impl IntoRespo
         effective_date: fetched.effective_date,
         fetched_at,
     }))
-}
-
-fn unix_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
 }

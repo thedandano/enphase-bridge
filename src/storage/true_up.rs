@@ -2,7 +2,6 @@ use crate::error::{AppError, StorageError};
 use crate::storage::models::TrueUpEstimate;
 use sqlx::SqlitePool;
 
-#[allow(dead_code)]
 pub async fn insert(pool: &SqlitePool, estimate: &TrueUpEstimate) -> Result<i64, AppError> {
     let result = sqlx::query(
         "INSERT INTO true_up_estimate

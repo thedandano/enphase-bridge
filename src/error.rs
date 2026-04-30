@@ -94,6 +94,9 @@ impl IntoResponse for AppError {
                 "no_tou_schedule",
                 "no TOU rate schedule available; run POST /api/tou/refresh first".into(),
             ),
+            AppError::Tou(TouError::ParseError(m)) => {
+                (StatusCode::BAD_GATEWAY, "upstream_parse_error", m.clone())
+            }
             AppError::Tou(TouError::UpstreamUnavailable(m)) => {
                 (StatusCode::BAD_GATEWAY, "upstream_unavailable", m.clone())
             }

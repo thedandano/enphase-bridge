@@ -6,8 +6,10 @@ pub struct OpenEiClient {
     api_key: String,
     utility_eia_id: u32,
     rate_label: String,
+    base_url: String,
 }
 
+#[derive(Debug)]
 pub struct FetchedSchedule {
     pub utility_name: String,
     pub rate_label: String,
@@ -16,20 +18,26 @@ pub struct FetchedSchedule {
 }
 
 impl OpenEiClient {
-    pub fn new(api_key: String, utility_eia_id: u32, rate_label: String) -> Self {
+    pub fn with_base_url(
+        api_key: String,
+        utility_eia_id: u32,
+        rate_label: String,
+        base_url: String,
+    ) -> Self {
         Self {
             client: Client::new(),
             api_key,
             utility_eia_id,
             rate_label,
+            base_url,
         }
     }
 
     pub async fn fetch(&self) -> Result<FetchedSchedule, AppError> {
         let url = format!(
-            "https://api.openei.org/utility_rates?version=7&format=json\
+            "{}/utility_rates?version=7&format=json\
              &eia={}&sector=Residential&detail=full&api_key={}",
-            self.utility_eia_id, self.api_key
+            self.base_url, self.utility_eia_id, self.api_key
         );
 
         let resp = self
@@ -57,6 +65,11 @@ impl OpenEiClient {
             ))
         })?;
 
+        let available_names: Vec<String> = items
+            .iter()
+            .filter_map(|i| i["name"].as_str().map(str::to_string))
+            .collect();
+
         // Match on the `name` field (human-readable), not `label` (internal doc ID).
         // Pick the most recently fetched version if duplicates exist.
         let item = items
@@ -64,6 +77,11 @@ impl OpenEiClient {
             .filter(|i| i["name"].as_str().unwrap_or("") == self.rate_label)
             .max_by_key(|i| i["startdate"].as_i64().unwrap_or(0))
             .ok_or_else(|| {
+                tracing::error!(
+                    event = "tou_rate_not_found",
+                    rate_label = %self.rate_label,
+                    available = ?available_names,
+                );
                 AppError::Tou(TouError::ParseError(format!(
                     "rate '{}' not found in OpenEI response for utility EIA {}",
                     self.rate_label, self.utility_eia_id

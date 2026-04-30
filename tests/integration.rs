@@ -1,3 +1,5 @@
+mod common;
+
 #[path = "integration/auth_test.rs"]
 mod auth_test;
 
@@ -12,3 +14,6 @@ mod trueup_test;
 
 #[path = "integration/gateway_client_test.rs"]
 mod gateway_client_test;
+
+#[path = "integration/tou_refresh_test.rs"]
+mod tou_refresh_test;
