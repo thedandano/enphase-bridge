@@ -7,6 +7,7 @@ mod inverter;
 mod storage;
 mod tou;
 mod trueup;
+mod util;
 
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -56,6 +57,7 @@ async fn main() -> anyhow::Result<()> {
         tou_api_key: config.tou.openei_api_key.clone(),
         tou_utility_eia_id: config.tou.utility_eia_id,
         tou_rate_label: config.tou.rate_label.clone(),
+        tou_openei_base_url: "https://api.openei.org".to_string(),
     };
 
     let gateway_client = collector::gateway_client::GatewayClient::new(
@@ -78,7 +80,8 @@ async fn main() -> anyhow::Result<()> {
         api_addr = format!("{}:{}", api_host, api_port),
     );
 
-    // Run API server and polling scheduler concurrently
+    tou::probe::probe_tou_schedule(&pool, &config.tou.rate_label).await;
+
     tokio::select! {
         result = api::server::serve(api_state, &api_host, api_port) => {
             if let Err(e) = result {
@@ -86,6 +89,12 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         _ = scheduler.run() => {}
+        _ = tou::refresh::run_tou_refresh_loop(
+            pool.clone(),
+            config.tou.openei_api_key.clone(),
+            config.tou.utility_eia_id,
+            config.tou.rate_label.clone(),
+        ) => {}
     }
 
     Ok(())

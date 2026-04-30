@@ -1,3 +1,4 @@
+use super::common::{OFF_PEAK_TS, PEAK_TS, SUPER_OP_TS, fixture_rate_json};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use enphase_bridge::api::server::{AppState, create_router};
@@ -31,6 +32,7 @@ fn make_state(pool: SqlitePool, rate_label: &str) -> AppState {
         tou_api_key: String::new(),
         tou_utility_eia_id: 0,
         tou_rate_label: rate_label.to_string(),
+        tou_openei_base_url: String::new(),
     }
 }
 
@@ -40,28 +42,6 @@ async fn json_body(resp: axum::http::Response<Body>) -> serde_json::Value {
         .unwrap();
     serde_json::from_slice(&bytes).unwrap()
 }
-
-// Reuse the same 3-period fixture from calculator_test:
-// period 0 = super-off-peak ($0.15), period 1 = off-peak ($0.25), period 2 = peak ($0.40)
-// Weekday: hours 0-5→0, 6-15→1, 16-20→2, 21-23→1
-fn fixture_rate_json() -> String {
-    let weekday_row = "[0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,1,1,1]";
-    let weekend_row = "[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]";
-    let months: Vec<&str> = vec![weekday_row; 12];
-    let weekend_months: Vec<&str> = vec![weekend_row; 12];
-    format!(
-        r#"{{"energyweekdayschedule":[{w}],"energyweekendschedule":[{e}],"energyratestructure":[[{{"rate":0.15,"unit":"kWh"}}],[{{"rate":0.25,"unit":"kWh"}}],[{{"rate":0.40,"unit":"kWh"}}]]}}"#,
-        w = months.join(","),
-        e = weekend_months.join(","),
-    )
-}
-
-// UTC 2024-01-02 00:00:00 = PST 2024-01-01 16:00 (Monday) → peak
-const PEAK_TS: i64 = 1704153600;
-// UTC 2024-01-02 08:00:00 = PST 2024-01-02 00:00 (Tuesday) → super-off-peak
-const SUPER_OP_TS: i64 = 1704182400;
-// UTC 2024-01-02 20:00:00 = PST 2024-01-02 12:00 (Tuesday) → off-peak
-const OFF_PEAK_TS: i64 = 1704225600;
 
 async fn seed_schedule(pool: &SqlitePool, rate_label: &str) -> i64 {
     let result = sqlx::query(
@@ -166,15 +146,65 @@ async fn test_estimate_returns_correct_net_cost() {
 
     assert_eq!(resp.status(), StatusCode::OK);
     let j = json_body(resp).await;
-    assert!((j["net_cost_usd"].as_f64().unwrap() - 0.08).abs() < 0.01);
-    assert!((j["breakdown"]["peak"]["import_cost_usd"].as_f64().unwrap() - 0.20).abs() < 0.01);
+    assert!((j["net_cost_usd"].as_f64().unwrap() - 0.08).abs() < 1e-6);
+    assert!((j["breakdown"]["peak"]["import_cost_usd"].as_f64().unwrap() - 0.20).abs() < 1e-6);
     assert!(
         (j["breakdown"]["super_off_peak"]["export_credit_usd"]
             .as_f64()
             .unwrap()
             - 0.05)
             .abs()
-            < 0.01
+            < 1e-6
     );
     assert_eq!(j["tou_schedule"]["rate_label"], "TestRate");
+}
+
+#[tokio::test]
+async fn test_estimate_includes_window_on_end_date() {
+    // Window at exact UTC midnight of the end date should be included (+1-day fix).
+    let pool = setup_pool().await;
+    seed_schedule(&pool, "TestRate").await;
+
+    // end date = 2024-01-03T00:00:00Z; seed a window exactly at that midnight
+    let end_midnight: i64 = 1704240000; // 2024-01-03 00:00:00 UTC
+    seed_window(&pool, end_midnight, 400.0, 0.0).await;
+
+    let app = create_router(make_state(pool, "TestRate"));
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/trueup/estimate?start=2024-01-01T00:00:00Z&end=2024-01-03T00:00:00Z")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let j = json_body(resp).await;
+    // 400 Wh import at off-peak (PST 2024-01-02 16:00 = period 1, $0.25): 0.4 * 0.25 = $0.10
+    // The window at end_midnight (UTC midnight 2024-01-03) falls in PST 2024-01-02 16:00 → peak
+    assert!(j["breakdown"]["peak"]["import_kwh"].as_f64().unwrap() > 0.0);
+}
+
+#[tokio::test]
+async fn test_estimate_same_day_start_end_returns_200() {
+    // start == end should be accepted; after +86400 normalization the range covers 2024-01-01.
+    let pool = setup_pool().await;
+    seed_schedule(&pool, "TestRate").await;
+    // 2024-01-01 00:00:00 UTC = 2023-12-31 16:00 PST → peak (period 2)
+    seed_window(&pool, 1704067200, 500.0, 0.0).await;
+
+    let app = create_router(make_state(pool, "TestRate"));
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/trueup/estimate?start=2024-01-01T00:00:00Z&end=2024-01-01T00:00:00Z")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
 }

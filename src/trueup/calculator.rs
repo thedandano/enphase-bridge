@@ -20,7 +20,7 @@ pub struct CalculatorResult {
     pub net_cost_usd: f64,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TouPeriod {
     Peak,
     OffPeak,
@@ -43,6 +43,15 @@ pub fn calculate(
     let weekend_sched = parse_schedule(&rate_json["energyweekendschedule"])?;
     let period_rates = parse_period_rates(&rate_json["energyratestructure"])?;
     let period_map = build_period_map(&period_rates);
+
+    tracing::info!(
+        event = "trueup_calc_start",
+        windows = %windows.len(),
+        schedule_id = %schedule.id,
+        period_count = %period_rates.len(),
+    );
+
+    tracing::debug!(event = "tou_period_map", period_map = ?period_map);
 
     let mut peak = PeriodSummary::default();
     let mut off_peak = PeriodSummary::default();
@@ -76,7 +85,11 @@ pub fn calculate(
             .get(month)
             .and_then(|m| m.get(hour))
             .copied()
-            .unwrap_or(0);
+            .ok_or_else(|| {
+                AppError::Tou(TouError::ParseError(format!(
+                    "schedule out of bounds: month={month}, hour={hour}"
+                )))
+            })?;
 
         let rates = period_rates.get(period_idx).ok_or_else(|| {
             AppError::Tou(TouError::ParseError(format!(
@@ -107,6 +120,14 @@ pub fn calculate(
         + off_peak.import_cost_usd
         + super_off_peak.import_cost_usd)
         - (peak.export_credit_usd + off_peak.export_credit_usd + super_off_peak.export_credit_usd);
+
+    tracing::info!(
+        event = "trueup_calc_done",
+        peak_kwh = peak.import_kwh,
+        offpeak_kwh = off_peak.import_kwh,
+        super_offpeak_kwh = super_off_peak.import_kwh,
+        net_cost_usd = net_cost_usd,
+    );
 
     Ok(CalculatorResult {
         peak,
@@ -150,15 +171,25 @@ fn parse_period_rates(val: &serde_json::Value) -> Result<Vec<PeriodRate>, AppErr
     })?;
     periods
         .iter()
-        .map(|period_val| {
+        .enumerate()
+        .map(|(i, period_val)| {
             let tiers = period_val.as_array().ok_or_else(|| {
                 AppError::Tou(TouError::ParseError("rate period is not an array".into()))
             })?;
             let tier = tiers.first().ok_or_else(|| {
                 AppError::Tou(TouError::ParseError("rate period has no tiers".into()))
             })?;
-            let rate = tier["rate"].as_f64().unwrap_or(0.0);
-            let sell_rate = tier["sell"].as_f64().unwrap_or(rate);
+            let rate = tier["rate"].as_f64().ok_or_else(|| {
+                AppError::Tou(TouError::ParseError(format!(
+                    "missing 'rate' field in tier {i}"
+                )))
+            })?;
+            let sell_rate = if let Some(s) = tier["sell"].as_f64() {
+                s
+            } else {
+                tracing::warn!(event = "tou_sell_rate_missing", tier = i);
+                rate
+            };
             Ok(PeriodRate { rate, sell_rate })
         })
         .collect()
@@ -173,6 +204,10 @@ fn build_period_map(period_rates: &[PeriodRate]) -> HashMap<usize, TouPeriod> {
     ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     let n = ranked.len();
+    if !(2..=4).contains(&n) {
+        tracing::warn!(event = "tou_period_count_unexpected", n = %n);
+    }
+
     let mut map = HashMap::new();
     for (rank, (idx, _)) in ranked.iter().enumerate() {
         let period = if rank == 0 {

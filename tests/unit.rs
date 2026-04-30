@@ -1,3 +1,5 @@
+mod common;
+
 #[path = "unit/token_manager_test.rs"]
 mod token_manager_test;
 
@@ -12,3 +14,6 @@ mod snapshot_test;
 
 #[path = "unit/gateway_client_test.rs"]
 mod gateway_client_test;
+
+#[path = "unit/openei_client_test.rs"]
+mod openei_client_test;

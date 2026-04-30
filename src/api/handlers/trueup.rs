@@ -1,7 +1,8 @@
 use crate::api::handlers::energy::parse_iso_or;
 use crate::api::server::AppState;
 use crate::error::{ApiError, AppError, TouError};
-use crate::storage::{energy_window, tou_schedule};
+use crate::storage::models::TrueUpEstimate;
+use crate::storage::{energy_window, tou_schedule, true_up};
 use crate::trueup::calculator;
 use axum::{
     Json,
@@ -62,11 +63,15 @@ pub async fn get_estimate(
     let period_start = parse_iso_or(Some(start_str), 0)?;
     let period_end = parse_iso_or(Some(end_str), 0)?;
 
-    if period_end <= period_start {
+    if period_end < period_start {
         return Err(AppError::Api(ApiError::InvalidParam(
             "end must be after start".into(),
         )));
     }
+
+    // energy_window::query_range uses exclusive end (`window_start < ?`); add one day so the
+    // user-supplied UTC midnight date is inclusive. Callers must pass `end` as a UTC instant.
+    let period_end = period_end + 86_400;
 
     let schedule = tou_schedule::query_latest(&state.pool, &state.tou_rate_label)
         .await?
@@ -83,7 +88,25 @@ pub async fn get_estimate(
 
     let result = calculator::calculate(&schedule, &windows)?;
 
-    let computed_at = unix_now();
+    let computed_at = crate::util::unix_now();
+
+    let estimate = TrueUpEstimate {
+        id: 0,
+        computed_at,
+        period_start,
+        period_end,
+        net_cost_usd: result.net_cost_usd,
+        peak_import_kwh: result.peak.import_kwh,
+        peak_export_kwh: result.peak.export_kwh,
+        offpeak_import_kwh: result.off_peak.import_kwh,
+        offpeak_export_kwh: result.off_peak.export_kwh,
+        super_offpeak_import_kwh: result.super_off_peak.import_kwh,
+        super_offpeak_export_kwh: result.super_off_peak.export_kwh,
+        tou_schedule_id: schedule.id,
+    };
+    if let Err(e) = true_up::insert(&state.pool, &estimate).await {
+        tracing::error!(event = "trueup_persist_failed", error = %e);
+    }
 
     Ok(Json(EstimateResponse {
         period_start,
@@ -123,11 +146,4 @@ fn round2(v: f64) -> f64 {
 }
 fn round3(v: f64) -> f64 {
     (v * 1000.0).round() / 1000.0
-}
-
-fn unix_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
 }

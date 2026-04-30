@@ -30,7 +30,6 @@ pub struct TouRateSchedule {
     pub rate_json: String,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct TrueUpEstimate {
     pub id: i64,

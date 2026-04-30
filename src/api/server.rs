@@ -15,6 +15,7 @@ pub struct AppState {
     pub tou_api_key: String,
     pub tou_utility_eia_id: u32,
     pub tou_rate_label: String,
+    pub tou_openei_base_url: String,
 }
 
 pub fn create_router(state: AppState) -> Router {

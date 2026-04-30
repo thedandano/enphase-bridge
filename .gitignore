@@ -5,6 +5,9 @@ release/
 *.rs.bk
 *.rlib
 
+# Plugin runtime state
+.remember/
+
 # Secrets & local config (never commit)
 config.toml
 energy.db

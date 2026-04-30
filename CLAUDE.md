@@ -43,10 +43,11 @@ Pre-commit and pre-push hooks live in `.githooks/`. Activate per clone with: `gi
 
 ## Architecture
 
-The daemon has two concurrent tasks (joined via `tokio::select!` in `main.rs`):
+The daemon has three concurrent tasks (joined via `tokio::select!` in `main.rs`):
 
 1. **Collector loop** (`src/collector/`) — polls the IQ Gateway on a configurable interval, computes 15-min energy deltas, and persists windows + inverter snapshots to SQLite.
 2. **API server** (`src/api/`) — Axum HTTP server serving all REST routes from the SQLite database.
+3. **TOU refresh loop** (`src/tou/refresh.rs`) — fires immediately if the schedule is missing or older than 7 days, then sleeps 7 days between refreshes; errors are logged and the loop continues.
 
 ### Data flow
 
@@ -59,7 +60,7 @@ IQ Gateway (HTTPS + JWT + session cookie)
     → Axum handlers        (api/handlers/)                   — query-only reads
 ```
 
-The scheduler persists the last cumulative reading (timestamp + Wh) to the `config_store` table so it survives restarts without re-polling.
+The scheduler persists the last cumulative reading (timestamp + Wh) to the `config_store` table so it survives restarts without re-polling. Before the `tokio::select!` block, `main.rs` calls `tou::probe::probe_tou_schedule` to log whether the TOU schedule is fresh or stale (warn-only, does not block startup).
 
 ### Key design decisions
 
@@ -70,7 +71,9 @@ The scheduler persists the last cumulative reading (timestamp + Wh) to the `conf
 - **Gateway JWT is not verified** — `token_manager.rs` only decodes the `exp` claim to warn/fail on expiry. The gateway's ES256 signature is not validated.
 - **Config layering**: `figment` merges `config.toml` → `ENPHASE__` environment variables. Section separator is `__` (e.g. `ENPHASE__API__PORT=9090`).
 - **Optional Bearer auth** — implemented in `api/middleware/api_key.rs` and `startup.rs` but **not yet wired into `main.rs` or `config.rs`**. `api.require_auth` and `api.api_key` config fields are planned but not active. Keys use constant-time comparison (`subtle::ConstantTimeEq`); auto-generated keys are written to **stderr only** to avoid leaking into log aggregators.
-- **TOU period classification**: `trueup/calculator.rs` ranks OpenEI rate periods by rate value — highest rate → Peak, lowest rate (when ≥3 periods exist) → Super Off-Peak, rest → Off-Peak. There are no explicit period name checks.
+- **TOU period classification**: `trueup/calculator.rs` ranks OpenEI rate periods by rate value — highest rate → Peak, lowest rate (when ≥3 periods exist, `n ≥ 3` required for SuperOffPeak) → Super Off-Peak, rest → Off-Peak. There are no explicit period name checks. Ties (two periods with identical rates) are broken by original array index order (stable sort), making results deterministic. If `"sell"` rate is absent from a tier, `tracing::warn!(event="tou_sell_rate_missing")` is emitted and the buy rate is used as fallback.
+- **`get_estimate` end-bound normalization**: `energy_window::query_range` uses exclusive end (`window_start < ?`). `api/handlers/trueup.rs::get_estimate` adds 86,400 seconds to the user-supplied `end` timestamp so a UTC midnight date is inclusive. The `end < start` guard runs against the raw parsed value before normalization. `GET /api/energy/windows` retains exclusive-end semantics without this normalization.
+- **TOU schedule lifecycle**: Two distinct thresholds — **refresh trigger (7 days)**: `tou/refresh.rs` re-fetches eagerly if the schedule is older than 7 days at startup. **Health/probe stale alarm (90 days)**: `tou/probe.rs` and `GET /api/health` flag the schedule as stale only if older than 90 days.
 - **Consumption sign convention**: Enphase reports consumption `activePower` as a negative value. `gateway_client.rs` negates it to positive watts.
 - **Inverter online threshold**: An inverter is considered offline if its last report timestamp is older than 20 minutes (`OFFLINE_THRESHOLD_SECS = 1200`).
 
@@ -91,9 +94,12 @@ The scheduler persists the last cumulative reading (timestamp + Wh) to the `conf
 | `api/middleware/api_key.rs` | Bearer token middleware; key generation + validation (implemented but not yet active) |
 | `auth/token_manager.rs` | JWT `exp` extraction; expiry checks |
 | `startup.rs` | API key resolution helpers (implemented but not yet called from `main.rs`) |
-| `tou/openei_client.rs` | Fetches TOU rate schedules from OpenEI URDB |
+| `tou/openei_client.rs` | Fetches TOU rate schedules from OpenEI URDB; `with_base_url()` overrides the base URL for tests |
+| `tou/probe.rs` | Startup TOU schedule probe: logs `tou_schedule_ok` or `tou_schedule_stale`; warn-only, never exits |
+| `tou/refresh.rs` | Background TOU auto-refresh loop: checks on startup, then sleeps 7 days; errors consumed, loop never exits |
 | `trueup/calculator.rs` | Net-metering annual cost/credit estimation; TOU period classification by rate ranking |
-| `error.rs` | Typed error hierarchy (`AppError`, `GatewayError`, `StorageError`, etc.) with Axum `IntoResponse` |
+| `util.rs` | Shared utility: `unix_now()` returns current Unix timestamp as i64 |
+| `error.rs` | Typed error hierarchy (`AppError`, `GatewayError`, `StorageError`, etc.) with Axum `IntoResponse`; `TouError::ParseError` → HTTP 502 |
 
 ### Database schema
 
@@ -106,10 +112,11 @@ Five tables (see `migrations/001_initial.sql`):
 
 ### Testing approach
 
-- **Unit tests** live in `tests/unit/` and are declared in `tests/unit.rs`. They test pure logic: `window_aggregator`, `token_manager`, `trueup/calculator`, `inverter/snapshot`.
+- **Unit tests** live in `tests/unit/` and are declared in `tests/unit.rs`. They test pure logic: `window_aggregator`, `token_manager`, `trueup/calculator`, `inverter/snapshot`, `tou/openei_client`.
 - **Integration tests** live in `tests/integration/` and are declared in `tests/integration.rs`. They spin up an in-memory SQLite pool, run migrations, construct an `AppState`, and call `create_router(...).oneshot(request)` directly — no network or spawned process needed.
 - The crate is exposed as a library (`src/lib.rs`) so integration tests can import `enphase_bridge::api::server::{AppState, create_router}`.
-- `mockito` is used in gateway client tests to stub HTTP responses without a real gateway.
+- `mockito` is used in gateway client and OpenEI client tests to stub HTTP responses without real external services.
+- `tests/fixtures/sdge_tou_dr2_item.json` contains a structurally accurate SDG&E TOU-DR-2 OpenEI item payload used to catch OpenEI schema drift in `calculator_test.rs`.
 
 ## Specs
 
