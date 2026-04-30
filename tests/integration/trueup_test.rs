@@ -1,4 +1,6 @@
-use super::common::{OFF_PEAK_TS, PEAK_TS, SUPER_OP_TS, fixture_rate_json};
+use super::common::{
+    OFF_PEAK_TS, PEAK_TS, SUMMER_PEAK_TS, SUMMER_SUPER_OP_TS, SUPER_OP_TS, fixture_rate_json,
+};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use enphase_bridge::api::server::{AppState, create_router};
@@ -51,6 +53,22 @@ async fn seed_schedule(pool: &SqlitePool, rate_label: &str) -> i64 {
     .bind(1_000_000_i64)
     .bind(rate_label)
     .bind(fixture_rate_json())
+    .execute(pool)
+    .await
+    .unwrap();
+    result.last_insert_rowid()
+}
+
+async fn seed_coastal_schedule(pool: &SqlitePool) -> i64 {
+    let rate_json =
+        std::fs::read_to_string("tests/fixtures/sdge_tou_dr_coastal_baseline_item.json")
+            .expect("coastal baseline fixture must exist");
+    let result = sqlx::query(
+        "INSERT INTO tou_rate_schedule (fetched_at, effective_date, utility_name, rate_label, rate_json)
+         VALUES (?, NULL, 'San Diego Gas & Electric', 'TOU-DR Coastal Baseline Region', ?)",
+    )
+    .bind(1_000_000_i64)
+    .bind(rate_json)
     .execute(pool)
     .await
     .unwrap();
@@ -185,6 +203,70 @@ async fn test_estimate_includes_window_on_end_date() {
     // 400 Wh import at off-peak (PST 2024-01-02 16:00 = period 1, $0.25): 0.4 * 0.25 = $0.10
     // The window at end_midnight (UTC midnight 2024-01-03) falls in PST 2024-01-02 16:00 → peak
     assert!(j["breakdown"]["peak"]["import_kwh"].as_f64().unwrap() > 0.0);
+}
+
+// 4.1 — 6-period coastal baseline: summer windows show Peak and SuperOffPeak in API response
+#[tokio::test]
+async fn test_estimate_6period_seasonal_peak_and_super_off_peak() {
+    let pool = setup_pool().await;
+    seed_coastal_schedule(&pool).await;
+    // Summer peak: Jul 1 16:00 PDT → period 0 → Peak
+    seed_window(&pool, SUMMER_PEAK_TS, 400.0, 0.0).await;
+    // Summer super-off-peak: Jul 2 00:00 PDT → period 2 → SuperOffPeak
+    seed_window(&pool, SUMMER_SUPER_OP_TS, 0.0, 200.0).await;
+
+    let app = create_router(make_state(pool, "TOU-DR Coastal Baseline Region"));
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/trueup/estimate?start=2024-07-01T00:00:00Z&end=2024-07-03T00:00:00Z")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let j = json_body(resp).await;
+
+    let peak = &j["breakdown"]["peak"];
+    let super_off_peak = &j["breakdown"]["super_off_peak"];
+    let off_peak = &j["breakdown"]["off_peak"];
+
+    assert!(
+        peak["import_kwh"].as_f64().unwrap() > 0.0,
+        "summer hour 16 should produce Peak kWh"
+    );
+    assert!(
+        super_off_peak["export_kwh"].as_f64().unwrap() > 0.0,
+        "summer hour 0 should produce SuperOffPeak export kWh"
+    );
+    assert_eq!(peak["export_kwh"].as_f64().unwrap(), 0.0);
+
+    // No off-peak windows were seeded
+    assert_eq!(
+        off_peak["import_kwh"].as_f64().unwrap(),
+        0.0,
+        "off_peak import_kwh should be 0"
+    );
+    assert_eq!(
+        off_peak["export_kwh"].as_f64().unwrap(),
+        0.0,
+        "off_peak export_kwh should be 0"
+    );
+
+    // net cost: 400 Wh import at rate 0.60 = $0.24; 200 Wh export at sell 0.30 = $0.06 credit
+    // net = 0.24 - 0.06 = 0.18
+    assert!(
+        (j["net_cost_usd"].as_f64().unwrap() - 0.18).abs() < 1e-6,
+        "net_cost_usd expected 0.18, got {}",
+        j["net_cost_usd"]
+    );
+
+    assert_eq!(
+        j["tou_schedule"]["rate_label"],
+        "TOU-DR Coastal Baseline Region"
+    );
 }
 
 #[tokio::test]
