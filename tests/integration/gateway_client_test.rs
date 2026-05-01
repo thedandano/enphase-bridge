@@ -1,4 +1,4 @@
-use enphase_bridge::collector::gateway_client::GatewayClient;
+use enphase_bridge::collector::gateway_client::{GatewayClient, extract_cumulatives_from_json};
 use enphase_bridge::error::{AppError, GatewayError};
 
 // Official sample values from Enphase IQ Gateway Local APIs tech brief (Jan 2023).
@@ -170,5 +170,49 @@ async fn test_probe_meters_errors_when_net_consumption_absent() {
             Err(AppError::Gateway(GatewayError::MissingMeter(_)))
         ),
         "probe_meters should return MissingMeter when net-consumption absent, got: {result:?}"
+    );
+}
+
+// JSON with channels arrays for the integration-level channel parsing test.
+const CHANNELS_JSON: &str = r#"[
+  {"eid": 704643328, "activePower": 1234.5, "actEnergyDlvd": 9876543.2, "actEnergyRcvd": 0.0, "channels": [
+    {"eid": 1778385169, "activePower": 617.25, "actEnergyDlvd": 4938271.6, "actEnergyRcvd": 0.0},
+    {"eid": 1778385170, "activePower": 617.25, "actEnergyDlvd": 4938271.6, "actEnergyRcvd": 0.0}
+  ]},
+  {"eid": 704643584, "activePower": -500.0, "actEnergyDlvd": 111111.0, "actEnergyRcvd": 22222.0, "channels": [
+    {"eid": 1778385171, "activePower": -250.0, "actEnergyDlvd": 55555.5, "actEnergyRcvd": 11111.0},
+    {"eid": 1778385172, "activePower": -250.0, "actEnergyDlvd": 55555.5, "actEnergyRcvd": 11111.0}
+  ]}
+]"#;
+
+/// 7.2 — extract_cumulatives_from_json returns non-empty channel_readings when channels are present.
+/// Integration-level confirmation that the pure parsing function populates channel_readings end-to-end.
+#[tokio::test]
+async fn test_extract_cumulatives_channel_readings_integration() {
+    let readings = extract_cumulatives_from_json(CHANNELS_JSON).expect("should parse successfully");
+
+    assert_eq!(
+        readings.channel_readings.len(),
+        4,
+        "expected 4 channel readings (2 per meter)"
+    );
+
+    let first = &readings.channel_readings[0];
+    assert_eq!(first.meter_eid, 704643328);
+    assert_eq!(first.channel_eid, 1778385169);
+    assert!(
+        (first.active_power - 617.25).abs() < 1e-6,
+        "active_power mismatch: expected 617.25, got {}",
+        first.active_power
+    );
+
+    // The top-level meter values are also correct.
+    assert!(
+        (readings.production_cum_wh - 9876543.2).abs() < 1e-3,
+        "production_cum_wh mismatch"
+    );
+    assert!(
+        (readings.grid_import_cum_wh - 111111.0).abs() < 1e-3,
+        "grid_import_cum_wh mismatch"
     );
 }

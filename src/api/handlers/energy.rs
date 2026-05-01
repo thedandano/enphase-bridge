@@ -1,6 +1,7 @@
 use crate::api::server::AppState;
 use crate::error::{ApiError, AppError};
 use crate::storage::energy_window;
+use crate::storage::energy_window::FormulaFilter;
 use axum::{
     Json,
     extract::{Query, State},
@@ -15,6 +16,7 @@ pub struct WindowsQuery {
     end: Option<String>,
     limit: Option<i32>,
     offset: Option<i32>,
+    formula_filter: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -52,7 +54,18 @@ pub async fn get_windows(
     let limit = params.limit.unwrap_or(100).clamp(1, 2880);
     let offset = params.offset.unwrap_or(0).max(0);
 
-    let rows = energy_window::query_range(&state.pool, start, end, limit, offset).await?;
+    let filter = match params.formula_filter.as_deref() {
+        None | Some("all") => FormulaFilter::All,
+        Some("current") => FormulaFilter::CurrentOnly,
+        Some("recomputable") => FormulaFilter::Recomputable,
+        Some(other) => {
+            return Err(AppError::Api(ApiError::InvalidParam(format!(
+                "unknown formula_filter '{other}'; valid values: all, current, recomputable"
+            ))));
+        }
+    };
+
+    let rows = energy_window::query_range(&state.pool, start, end, limit, offset, filter).await?;
     let total = rows.len();
     let windows = rows.into_iter().map(to_item).collect();
 

@@ -1,5 +1,10 @@
 # Architecture
 
+**[→ Open interactive architecture diagram](./architecture.html)**
+(color-coded component map with data flow, isolation table, and startup recompute flow)
+
+---
+
 ## System overview
 
 ```mermaid
@@ -44,12 +49,17 @@ graph LR
 
 | Component | File(s) | Responsibility |
 |-----------|---------|----------------|
-| Collector | `src/collector/scheduler.rs`, `gateway_client.rs` | Timed polling of the IQ Gateway over HTTPS |
-| Window Aggregator | `src/collector/window_aggregator.rs` | Buckets raw readings into 15-minute Wh windows |
-| Storage | `src/storage/` (sqlx + SQLite) | Persists windows, inverter snapshots, TOU rates |
-| API Server | `src/api/server.rs`, `src/api/handlers/` | Axum HTTP router serving all REST routes |
-| Auth Middleware | `src/auth/` | Optional Bearer token gate; validates on each request |
-| Config | `src/config.rs` (Figment) | Merges TOML file + environment variable overrides |
+| GatewayClient | `src/collector/gateway_client.rs` | HTTPS transport + session cookie management; returns `MeterReadings` with typed cumulatives, raw JSON, and channel data |
+| `extract_cumulatives_from_json` | `src/collector/gateway_client.rs` | Pure fn — JSON parsing and EID selection, no HTTP; shared by live path and `recompute_windows --mode raw` |
+| WindowAggregator | `src/collector/window_aggregator.rs` | Pure math: `window_boundary()`, `compute_delta()`, `CURRENT_FORMULA_VERSION` constant |
+| Scheduler | `src/collector/scheduler.rs` | Orchestration hub — poll loop, boundary detection, 4-branch transaction decision tree, power-sample accumulator (ephemeral, max 15 tuples) |
+| StartupRecompute | fn in `src/collector/scheduler.rs` | One-shot auto-heal before poll loop: re-runs `compute_delta` on stale rows from `boundary_snapshot` pairs |
+| Storage | `src/storage/` (sqlx + SQLite) | Per-table query modules: `energy_window`, `boundary_snapshot`, `power_sample`, `phase_reading`, `microinverter_snapshot`, `config_store`, `tou_rate_schedule` |
+| API Server | `src/api/server.rs`, `src/api/handlers/` | Axum HTTP router — read-only; no gateway access; no writes |
+| TOU refresh loop | `src/tou/refresh.rs` | Background loop: re-fetches OpenEI rate schedule if stale (&gt;7 days), then sleeps 7 days |
+| recompute_windows | `src/bin/recompute_windows.rs` | CLI tool: `--mode typed` (re-runs compute_delta from boundary_snapshot) or `--mode raw` (re-parses raw JSON for EID/extraction bugs); `--dry-run` supported |
+| Auth Middleware | `src/api/middleware/api_key.rs` | Optional Bearer token gate; implemented but not yet wired into config |
+| Config | `src/config.rs` (Figment) | Merges TOML file + `ENPHASE__` environment variable overrides |
 
 ## Technology choices
 

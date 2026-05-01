@@ -175,13 +175,15 @@ curl -H "Authorization: Bearer <your-key>" http://localhost:8080/api/energy/wind
 | Route | Method | Description |
 |-------|--------|-------------|
 | `/api/health` | GET | Liveness — always open, no auth required |
-| `/api/energy/windows` | GET | 15-min energy windows (filterable by `start`/`end` — RFC3339 UTC) |
-| `/api/energy/windows/latest` | GET | Most recent completed window (partial in-progress windows excluded) |
+| `/api/energy/windows` | GET | 15-min energy windows — `?start`/`?end` RFC3339; `?formula_filter=current\|recomputable` |
+| `/api/energy/windows/latest` | GET | Most recent completed window |
+| `/api/power/samples` | GET | Raw instantaneous watts every 60s — `?start`/`?end`/`?limit`/`?offset` |
+| `/api/power/phases` | GET | Per-phase (L1/L2) readings at each boundary — `?start`/`?end`/`?meter_eid` |
 | `/api/inverters/snapshots` | GET | Per-inverter power snapshots |
-| `/api/inverters/snapshots/window/{window_start}` | GET | Snapshots for a specific window timestamp (RFC3339 UTC) |
+| `/api/inverters/snapshots/window/{window_start}` | GET | Snapshots for a specific 15-min window |
 | `/api/inverters/arrays` | GET | Inverters grouped into named arrays |
 | `/api/tou/refresh` | POST | Fetch/refresh TOU rate schedule from OpenEI |
-| `/api/trueup/estimate` | GET | Net metering cost estimate (`start`/`end` — RFC3339 UTC) |
+| `/api/trueup/estimate` | GET | Net metering cost estimate — `?start`/`?end` RFC3339 |
 
 **Example — last 7 days of energy:**
 

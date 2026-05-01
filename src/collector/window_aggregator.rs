@@ -1,6 +1,7 @@
 use crate::storage::models::EnergyWindow;
 
 pub const WINDOW_SECS: i64 = 15 * 60;
+pub const CURRENT_FORMULA_VERSION: i32 = 1;
 
 #[derive(Debug, Clone)]
 pub struct CumulativeReading {
@@ -30,7 +31,9 @@ pub fn compute_delta(
     let wh_grid_import = (curr.grid_import_cum_wh - prev.grid_import_cum_wh).max(0.0);
     let wh_grid_export = (curr.grid_export_cum_wh - prev.grid_export_cum_wh).max(0.0);
     // Consumption derived from energy balance: produced + imported - exported
-    let wh_consumed = (wh_produced + wh_grid_import - wh_grid_export).max(0.0);
+    let balance = wh_produced + wh_grid_import - wh_grid_export;
+    let was_clamped = balance < 0.0;
+    let wh_consumed = balance.max(0.0);
 
     EnergyWindow {
         id: 0,
@@ -40,5 +43,10 @@ pub fn compute_delta(
         wh_grid_import,
         wh_grid_export,
         is_complete,
+        formula_version: CURRENT_FORMULA_VERSION,
+        was_clamped,
+        avg_production_w: None,
+        avg_consumption_w: None,
+        avg_grid_w: None,
     }
 }

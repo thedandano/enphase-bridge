@@ -48,15 +48,17 @@ async fn seed_snapshot(
     serial: &str,
     watts: f64,
     online: bool,
+    last_report_date: i64,
 ) {
     sqlx::query(
-        "INSERT INTO microinverter_snapshot (window_start, serial_number, watts_output, is_online)
-         VALUES (?, ?, ?, ?)",
+        "INSERT INTO microinverter_snapshot (window_start, serial_number, watts_output, is_online, last_report_date)
+         VALUES (?, ?, ?, ?, ?)",
     )
     .bind(window_start)
     .bind(serial)
     .bind(watts)
     .bind(online)
+    .bind(last_report_date)
     .execute(pool)
     .await
     .unwrap();
@@ -81,9 +83,9 @@ async fn test_get_snapshots_by_window_404_when_empty() {
 #[tokio::test]
 async fn test_get_snapshots_by_window_returns_all_inverters() {
     let pool = test_pool().await;
-    seed_snapshot(&pool, 1704067200, "SN001", 250.0, true).await;
-    seed_snapshot(&pool, 1704067200, "SN002", 0.0, false).await;
-    seed_snapshot(&pool, 1704067200, "SN003", 299.0, true).await;
+    seed_snapshot(&pool, 1704067200, "SN001", 250.0, true, 0).await;
+    seed_snapshot(&pool, 1704067200, "SN002", 0.0, false, 0).await;
+    seed_snapshot(&pool, 1704067200, "SN003", 299.0, true, 0).await;
 
     let app = create_router(make_state(pool));
     let resp = app
@@ -110,9 +112,9 @@ async fn test_get_snapshots_by_window_returns_all_inverters() {
 #[tokio::test]
 async fn test_get_snapshots_with_serial_filter() {
     let pool = test_pool().await;
-    seed_snapshot(&pool, 1704067200, "SN001", 250.0, true).await;
-    seed_snapshot(&pool, 1704067200, "SN002", 230.0, true).await;
-    seed_snapshot(&pool, 1704068100, "SN001", 260.0, true).await;
+    seed_snapshot(&pool, 1704067200, "SN001", 250.0, true, 0).await;
+    seed_snapshot(&pool, 1704067200, "SN002", 230.0, true, 0).await;
+    seed_snapshot(&pool, 1704068100, "SN001", 260.0, true, 0).await;
 
     let app = create_router(make_state(pool));
     let resp = app
@@ -131,4 +133,76 @@ async fn test_get_snapshots_with_serial_filter() {
     assert_eq!(j["total"], 2);
     let snaps = j["snapshots"].as_array().unwrap();
     assert!(snaps.iter().all(|s| s["serial_number"] == "SN001"));
+    assert_eq!(snaps[0]["last_report_date"], 0_i64);
+}
+
+#[tokio::test]
+async fn test_insert_round_trips_last_report_date() {
+    use enphase_bridge::storage::inverter_snapshot;
+    use enphase_bridge::storage::models::MicroinverterSnapshot;
+    let pool = test_pool().await;
+    let snap = MicroinverterSnapshot {
+        id: 0,
+        window_start: 1704067200,
+        serial_number: "SN_RT".to_string(),
+        watts_output: 275.0,
+        is_online: true,
+        last_report_date: 1704067100,
+    };
+    inverter_snapshot::insert_batch(&pool, &[snap])
+        .await
+        .unwrap();
+    let rows = inverter_snapshot::query_by_window(&pool, 1704067200)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].last_report_date, 1704067100);
+    assert!(rows[0].is_online);
+    assert!((rows[0].watts_output - 275.0).abs() < 1e-6);
+}
+
+#[tokio::test]
+async fn test_get_snapshots_by_window_includes_last_report_date() {
+    let pool = test_pool().await;
+    seed_snapshot(&pool, 1704067200, "SN001", 250.0, true, 1704067100).await;
+    let app = create_router(make_state(pool));
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/inverters/snapshots/window/1704067200")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let j = json_body(resp).await;
+    let inverters = j["inverters"].as_array().unwrap();
+    assert_eq!(inverters[0]["last_report_date"], 1704067100_i64);
+}
+
+#[tokio::test]
+async fn test_legacy_insert_without_last_report_date_defaults_to_zero() {
+    use enphase_bridge::storage::inverter_snapshot;
+    let pool = test_pool().await;
+    // Insert using legacy column list — simulates pre-migration row
+    sqlx::query(
+        "INSERT INTO microinverter_snapshot (window_start, serial_number, watts_output, is_online)
+         VALUES (?, ?, ?, ?)",
+    )
+    .bind(1704067200_i64)
+    .bind("SN_OLD")
+    .bind(240.0_f64)
+    .bind(true)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rows = inverter_snapshot::query_by_window(&pool, 1704067200)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].last_report_date, 0); // backfill sentinel
+    assert!(rows[0].is_online); // unchanged
+    assert!((rows[0].watts_output - 240.0).abs() < 1e-6); // unchanged
 }

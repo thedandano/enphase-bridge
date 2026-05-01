@@ -77,8 +77,8 @@ async fn seed_coastal_schedule(pool: &SqlitePool) -> i64 {
 
 async fn seed_window(pool: &SqlitePool, window_start: i64, import_wh: f64, export_wh: f64) {
     sqlx::query(
-        "INSERT INTO energy_window (window_start, wh_produced, wh_consumed, wh_grid_import, wh_grid_export, is_complete)
-         VALUES (?, 0.0, 0.0, ?, ?, 1)",
+        "INSERT INTO energy_window (window_start, wh_produced, wh_consumed, wh_grid_import, wh_grid_export, is_complete, formula_version)
+         VALUES (?, 0.0, 0.0, ?, ?, 1, 1)",
     )
     .bind(window_start)
     .bind(import_wh)
@@ -289,4 +289,47 @@ async fn test_estimate_same_day_start_end_returns_200() {
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
+}
+
+// 11.10: trueup estimate excludes non-current formula_version windows and reports excluded_window_count
+#[tokio::test]
+async fn test_estimate_excludes_non_current_formula_windows() {
+    let pool = setup_pool().await;
+    seed_schedule(&pool, "TestRate").await;
+
+    // Seed 3 windows with formula_version=0 (unrecomputable) at timestamps within the range
+    // Use timestamps that don't collide with PEAK_TS or OFF_PEAK_TS
+    for ts in [1704067200_i64, 1704068100, 1704069000] {
+        sqlx::query(
+            "INSERT INTO energy_window (window_start, wh_produced, wh_consumed, wh_grid_import, wh_grid_export, is_complete, formula_version)
+             VALUES (?, 0.0, 0.0, 0.0, 0.0, 1, 0)",
+        )
+        .bind(ts)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    // Seed 2 windows using the helper (formula_version=1 = current)
+    seed_window(&pool, PEAK_TS, 500.0, 0.0).await;
+    seed_window(&pool, OFF_PEAK_TS, 0.0, 200.0).await;
+
+    let app = create_router(make_state(pool, "TestRate"));
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/trueup/estimate?start=2024-01-01T00:00:00Z&end=2024-01-03T00:00:00Z")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let j = json_body(resp).await;
+    assert_eq!(
+        j["excluded_window_count"].as_u64().unwrap(),
+        3,
+        "3 unrecomputable windows should be excluded from the estimate"
+    );
 }

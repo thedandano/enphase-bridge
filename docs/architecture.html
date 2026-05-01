@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>enphase-bridge — Architecture</title>
+<style>
+/* ── Dracula Pro palette ── */
+:root {
+  --bg:          #08070A;
+  --bg-card:     #131217;
+  --bg-elevated: #17161D;
+  --selection:   #1B1921;
+  --fg:          #F8F8F2;
+  --fg-muted:    #9281BB;
+  --border:      rgba(248,248,242,0.10);
+  --border-sub:  rgba(248,248,242,0.06);
+  --green:  #8AFF80;
+  --orange: #FFCA80;
+  --cyan:   #80FFEA;
+  --red:    #FF9580;
+  --purple: #9580FF;
+  --pink:   #FF80BF;
+  --yellow: #FFFF80;
+  --muted:  #9281BB;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── Base ── */
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  background: var(--bg);
+  padding: 40px 24px 64px;
+  color: var(--fg);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Page header ── */
+.page-header { max-width: 1100px; margin: 0 auto 28px; }
+h1 {
+  font-size: 22px; font-weight: 700; letter-spacing: -0.01em;
+  color: var(--fg); margin-bottom: 6px;
+}
+.subtitle { font-size: 12.5px; color: var(--fg-muted); line-height: 1.65; max-width: 740px; }
+
+/* ── Legend ── */
+.legend {
+  display: flex; flex-wrap: wrap; gap: 10px 18px;
+  max-width: 1100px; margin: 0 auto 28px;
+  padding: 14px 18px;
+  background: var(--bg-card);
+  border-radius: 10px; border: 1px solid var(--border);
+}
+.legend-item { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--fg-muted); white-space: nowrap; }
+.legend-swatch { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; }
+
+/* ── Container ── */
+.container { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+
+/* ── Panels ── */
+.panel {
+  background: var(--bg-card);
+  border-radius: 12px; padding: 24px 28px;
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 4px 16px rgba(0,0,0,0.3);
+}
+.panel-title {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.09em; color: rgba(248,248,242,0.40);
+  margin-bottom: 20px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+
+/* ── Spine ── */
+.spine { display: flex; flex-direction: column; }
+.layer-label {
+  font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.1em; color: rgba(248,248,242,0.30); padding: 12px 0 6px;
+}
+.layer-label:first-child { padding-top: 0; }
+
+/* ── Arrows ── */
+.arrow-down { display: flex; flex-direction: column; align-items: center; padding: 4px 0; gap: 0; }
+.arrow-stem { width: 1.5px; height: 14px; background: rgba(248,248,242,0.14); }
+.arrow-head {
+  width: 0; height: 0;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+  border-top: 5px solid rgba(248,248,242,0.16); margin-top: -1px;
+}
+.arrow-note { font-size: 9px; color: rgba(248,248,242,0.35); margin-top: 2px; text-align: center; }
+
+/* ── Nodes ── */
+.node { border-radius: 8px; padding: 10px 14px; border-left: 3px solid transparent; }
+.node + .node { margin-top: 8px; }
+.node-title {
+  font-weight: 600; font-size: 12.5px; margin-bottom: 4px;
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap; line-height: 1.3;
+}
+.node-body { font-size: 11px; color: rgba(248,248,242,0.70); line-height: 1.6; }
+.node-body code {
+  font-family: ui-monospace, 'SF Mono', monospace; font-size: 10px;
+  background: var(--selection); padding: 1px 4px; border-radius: 3px;
+  color: var(--cyan);
+}
+.node-file { font-size: 9.5px; font-family: ui-monospace, 'SF Mono', monospace; color: rgba(248,248,242,0.38); font-weight: 400; }
+
+/* ── Layer color system — Dracula Pro signal colors ── */
+.ext   { background: color-mix(in srgb,var(--cyan)   5%,var(--bg-card)); border-color: var(--cyan);   }
+.parse { background: color-mix(in srgb,var(--purple) 5%,var(--bg-card)); border-color: var(--purple); }
+.sched { background: color-mix(in srgb,var(--pink)   5%,var(--bg-card)); border-color: var(--pink);   }
+.logic { background: color-mix(in srgb,var(--orange) 5%,var(--bg-card)); border-color: var(--orange); }
+.store { background: color-mix(in srgb,var(--green)  5%,var(--bg-card)); border-color: var(--green);  }
+.api   { background: color-mix(in srgb,var(--yellow) 5%,var(--bg-card)); border-color: var(--yellow); }
+.tou   { background: color-mix(in srgb,var(--red)    5%,var(--bg-card)); border-color: var(--red);    }
+.cli   { background: color-mix(in srgb,var(--muted)  5%,var(--bg-card)); border-color: var(--muted);  }
+
+/* ── Branch decision block ── */
+.branch-block {
+  margin-top: 4px; padding-left: 24px;
+  border-left: 2px solid rgba(248,248,242,0.14);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.branch-header {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: rgba(248,248,242,0.35); padding: 4px 0 2px;
+}
+.exit { border-radius: 7px; padding: 8px 12px; border-left: 3px solid; }
+.exit-title { font-weight: 700; font-size: 10px; margin-bottom: 3px; }
+.exit-body  { font-size: 10px; color: rgba(248,248,242,0.70); line-height: 1.45; }
+.exit-body code {
+  font-family: ui-monospace, 'SF Mono', monospace; font-size: 9.5px;
+  background: var(--selection); padding: 1px 3px; border-radius: 3px; color: var(--cyan);
+}
+.exit-inserted { background: color-mix(in srgb,var(--green)  8%,var(--bg-card)); border-color: var(--green);  }
+.exit-exists   { background: color-mix(in srgb,var(--yellow) 8%,var(--bg-card)); border-color: var(--yellow); }
+.exit-repair   { background: color-mix(in srgb,var(--cyan)   8%,var(--bg-card)); border-color: var(--cyan);   }
+.exit-toolarge { background: color-mix(in srgb,var(--purple) 8%,var(--bg-card)); border-color: var(--purple); }
+.exit-error    { background: color-mix(in srgb,var(--red)    8%,var(--bg-card)); border-color: var(--red);    }
+
+/* ── Badges ── */
+.badge {
+  display: inline-block; font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  border-radius: 4px; padding: 2px 6px; white-space: nowrap;
+}
+.badge-new  { background: color-mix(in srgb,var(--green)  14%,var(--bg-card)); color: var(--green);  }
+.badge-pure { background: color-mix(in srgb,var(--purple) 14%,var(--bg-card)); color: var(--purple); }
+.badge-once { background: color-mix(in srgb,var(--orange) 14%,var(--bg-card)); color: var(--orange); }
+.badge-cli  { background: color-mix(in srgb,var(--muted)  14%,var(--bg-card)); color: var(--muted);  }
+.badge-bg   { background: color-mix(in srgb,var(--red)    14%,var(--bg-card)); color: var(--red);    }
+
+/* ── Table chips ── */
+.schema-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 7px; }
+.table-chip {
+  font-size: 10px; font-family: ui-monospace, 'SF Mono', monospace;
+  background: var(--selection); border-radius: 4px; padding: 2px 8px;
+  color: rgba(248,248,242,0.70); border: 1px solid rgba(248,248,242,0.12);
+}
+.table-chip.new-t { background: color-mix(in srgb,var(--green) 14%,var(--bg-card)); border-color: color-mix(in srgb,var(--green) 35%,var(--bg-card)); color: var(--green); }
+
+/* ── Concurrent systems grid ── */
+.concurrent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 20px;
+}
+
+/* ── Vertical sub-flow ── */
+.vflow { display: flex; flex-direction: column; gap: 8px; }
+
+/* ── Callout box ── */
+.callout {
+  margin-top: 12px; border-radius: 8px; padding: 10px 14px;
+  font-size: 11px; line-height: 1.6;
+}
+.callout-green { background: color-mix(in srgb,var(--green)  10%,var(--bg-card)); border: 1px solid color-mix(in srgb,var(--green)  30%,var(--bg-card)); color: var(--green);  }
+.callout-blue  { background: color-mix(in srgb,var(--cyan)   10%,var(--bg-card)); border: 1px solid color-mix(in srgb,var(--cyan)   30%,var(--bg-card)); color: var(--cyan);   }
+.callout-amber { background: color-mix(in srgb,var(--orange) 10%,var(--bg-card)); border: 1px solid color-mix(in srgb,var(--orange) 30%,var(--bg-card)); color: var(--orange); }
+
+/* ── Route list ── */
+.route-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.route { display: flex; gap: 8px; align-items: baseline; font-size: 11px; }
+.method {
+  font-size: 9px; font-weight: 700; font-family: ui-monospace, monospace;
+  background: var(--selection); padding: 2px 5px; border-radius: 3px;
+  color: rgba(248,248,242,0.65); min-width: 32px; text-align: center; white-space: nowrap;
+}
+.method.post { background: color-mix(in srgb,var(--orange) 16%,var(--bg-card)); color: var(--orange); }
+.route-path { font-family: ui-monospace, monospace; font-size: 10px; }
+.route-note { font-size: 10px; color: rgba(248,248,242,0.38); }
+
+/* ── Component isolation table ── */
+.iso-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 4px; }
+.iso-table th {
+  padding: 6px 10px; text-align: left; font-weight: 600;
+  border-bottom: 2px solid rgba(248,248,242,0.12);
+  background: var(--bg); color: rgba(248,248,242,0.55);
+}
+.iso-table td { padding: 5px 10px; border-bottom: 1px solid var(--border-sub); }
+.iso-table td:last-child { font-weight: 700; }
+.iso-table td.isolated { color: var(--green);  }
+.iso-table td.hub      { color: var(--pink);   }
+.iso-table td.pure     { color: var(--cyan); font-style: italic; }
+.iso-table td code     { font-family: ui-monospace, monospace; font-size: 10px; }
+.iso-note { font-size: 11px; color: rgba(248,248,242,0.40); margin-top: 10px; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>enphase-bridge — Architecture</h1>
+  <p class="subtitle">Self-hosted Rust daemon that polls an Enphase IQ Gateway over HTTPS, aggregates solar energy into 15-minute windows, and serves them via a local REST API backed by SQLite. Three concurrent Tokio tasks race under a single <code>tokio::select!</code>: the collector poll loop, the Axum API server, and the TOU auto-refresh loop.</p>
+</div>
+
+<!-- Legend -->
+<div class="legend">
+  <div class="legend-item"><div class="legend-swatch" style="background:#80FFEA"></div>External system</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#9580FF"></div>Transport / HTTP client / parse</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#FF80BF"></div>Scheduler / orchestration</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#FFCA80"></div>Pure logic / math</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#8AFF80"></div>Storage (SQL)</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#FFFF80"></div>API server / handlers</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#FF9580"></div>Background loop / cron</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#9281BB"></div>Config / startup</div>
+</div>
+
+<div class="container">
+
+  <!-- ── Section A: Main pipeline (write path) ── -->
+  <div class="panel">
+    <div class="panel-title">Main pipeline — collector write path · polls every 60 s (configurable)</div>
+    <div class="spine">
+
+      <div class="layer-label">Config &amp; startup</div>
+
+      <div class="node cli">
+        <div class="node-title">
+          Config loader
+          <span class="node-file">src/config.rs</span>
+          <span class="badge badge-once">startup-once</span>
+        </div>
+        <div class="node-body">
+          Figment merges <code>config.toml</code> + <code>ENPHASE__*</code> env vars into a typed <code>Config</code> struct. Sections: <code>gateway</code>, <code>polling</code>, <code>api</code>, <code>storage</code>, <code>tou</code>, <code>arrays</code>. Section separator is <code>__</code> (e.g. <code>ENPHASE__API__PORT=9090</code>).
+        </div>
+      </div>
+
+      <div class="arrow-down">
+        <div class="arrow-stem"></div>
+        <div class="arrow-head"></div>
+        <div class="arrow-note">Config struct · SQLite pool created + migrations applied</div>
+      </div>
+
+      <div class="node cli">
+        <div class="node-title">
+          TokenManager
+          <span class="node-file">src/auth/token_manager.rs</span>
+          <span class="badge badge-pure">pure</span>
+          <span class="badge badge-once">startup-once</span>
+        </div>
+        <div class="node-body">
+          Base64-decodes the Enphase cloud JWT payload locally to read the <code>exp</code> claim. No network call — ES256 signature is not verified. Process exits if token is expired; warns if expiry is within 30 days.
+        </div>
+      </div>
+
+      <div class="arrow-down">
+        <div class="arrow-stem"></div>
+        <div class="arrow-head"></div>
+        <div class="arrow-note">token validated · GatewayClient + Scheduler constructed</div>
+      </div>
+
+      <div class="layer-label">External system</div>
+
+      <div class="node ext">
+        <div class="node-title">
+          Enphase IQ Gateway
+          <span class="node-file">hardware · LAN · HTTPS self-signed cert</span>
+        </div>
+        <div class="node-body">
+          Physical inverter gateway on the home LAN. Exposes metering (<code>GET /ivp/meters/readings</code>), meter discovery (<code>GET /ivp/meters</code>), per-inverter snapshots (<code>GET /api/v1/production/inverters</code>), and session exchange (<code>POST /auth/check_jwt</code>). Firmware 7.x+ requires a session cookie for <code>/ivp/</code> endpoints.
+        </div>
+      </div>
+
+      <div class="arrow-down">
+        <div class="arrow-stem"></div>
+        <div class="arrow-head"></div>
+        <div class="arrow-note">HTTPS · JSON · lifetime Wh counters (actEnergyDlvd / actEnergyRcvd) + per-inverter watts</div>
+      </div>
+
+      <div class="layer-label">Transport / HTTP client</div>
+
+      <div class="node parse">
+        <div class="node-title">
+          GatewayClient
+          <span class="node-file">src/collector/gateway_client.rs</span>
+        </div>
+        <div class="node-body">
+          Manages session cookie via <code>check_jwt()</code>. At scheduler startup calls <code>probe_meters()</code> to confirm the <code>net-consumption</code> meter is present and enabled — halts with <code>GatewayError::MissingMeter</code> if absent (no silent fallback). Each poll calls <code>get_meter_readings()</code>; auto-retries with a fresh <code>check_jwt()</code> on any 401. On window boundary calls <code>get_inverter_snapshots()</code>. Deserializes JSON → <code>MeterReadings</code> / <code>Vec&lt;InverterReport&gt;</code>.
+        </div>
+      </div>
+
+      <div class="arrow-down">
+        <div class="arrow-stem"></div>
+        <div class="arrow-head"></div>
+        <div class="arrow-note">MeterReadings · Vec&lt;InverterReport&gt;</div>
+      </div>
+
+      <div class="layer-label">Orchestration</div>
+
+      <div class="node sched">
+        <div class="node-title">
+          Scheduler
+          <span class="node-file">src/collector/scheduler.rs</span>
+        </div>
+        <div class="node-body">
+          Tokio interval loop. Startup: calls <code>check_jwt()</code> then <code>probe_meters()</code>; loads persisted anchor reading from <code>config_store</code>. Each tick: polls gateway via GatewayClient, calls <code>window_boundary()</code> to detect 15-min crossings, delegates to <code>compute_delta()</code> and <code>parse_snapshots()</code>, writes to storage, and persists the new anchor Wh values.
+        </div>
+      </div>
+
+      <div class="arrow-down">
+        <div class="arrow-stem"></div>
+        <div class="arrow-head"></div>
+        <div class="arrow-note">window boundary check · curr_window vs prev_window</div>
+      </div>
+
+      <!-- Branch block -->
+      <div class="branch-block">
+        <div class="branch-header">outcome branches — window boundary decision</div>
+
+        <div class="exit exit-inserted">
+          <div class="exit-title">Window crossed — write path</div>
+          <div class="exit-body">
+            <strong>WindowAggregator</strong> (<code>src/collector/window_aggregator.rs</code>)
+            <code>compute_delta(prev, curr)</code>: subtracts lifetime Wh counters; derives <code>wh_consumed = produced + import − export</code>; clamps all deltas to ≥ 0.<br><br>
+            <strong>InverterSnapshot parser</strong> (<code>src/inverter/snapshot.rs</code>)
+            <code>parse_snapshots(reports, window_start)</code>: marks each micro-inverter online if last-report age &lt; 20 min (<code>OFFLINE_THRESHOLD_SECS = 1200</code>), else zeros watts.<br><br>
+            Scheduler writes <code>EnergyWindow</code> → <code>energy_window</code> table; writes <code>Vec&lt;MicroinverterSnapshot&gt;</code> → <code>microinverter_snapshot</code> table; persists new anchor (timestamp + cumulative Wh) to <code>config_store</code>.
+          </div>
+        </div>
+
+        <div class="exit exit-repair">
+          <div class="exit-title">Mid-window tick — anchor frozen</div>
+          <div class="exit-body">
+            No window written. Current reading is held in memory but the persisted anchor is <em>not</em> updated — it stays pinned to the last boundary reading so the next window delta is computed correctly.
+          </div>
+        </div>
+
+        <div class="exit exit-error">
+          <div class="exit-title">Gateway poll error</div>
+          <div class="exit-body">
+            <code>poll_error</code> logged; tick skipped via <code>continue</code>. Loop never exits. 401 triggers automatic <code>check_jwt()</code> re-auth transparent to the loop.
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-down">
+        <div class="arrow-stem"></div>
+        <div class="arrow-head"></div>
+        <div class="arrow-note">EnergyWindow · MicroinverterSnapshot · anchor Wh → SQLite</div>
+      </div>
+
+      <div class="layer-label">Storage</div>
+
+      <div class="node store">
+        <div class="node-title">
+          Storage modules
+          <span class="node-file">src/storage/</span>
+        </div>
+        <div class="node-body">
+          Pure SQL over a single WAL-mode SQLite pool (<code>max_connections(1)</code>). Each module is a thin query layer with no business logic. Five tables:
+          <div class="schema-row">
+            <span class="table-chip">energy_window</span>
+            <span class="table-chip">microinverter_snapshot</span>
+            <span class="table-chip">config_store</span>
+            <span class="table-chip">tou_rate_schedule</span>
+            <span class="table-chip">true_up_estimate</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Section B: Concurrent systems ── -->
+  <div class="concurrent-grid">
+
+    <!-- Panel 1: API server -->
+    <div class="panel">
+      <div class="panel-title">
+        API server · <span class="badge badge-bg">always running</span>
+      </div>
+      <div class="vflow">
+
+        <div class="node api">
+          <div class="node-title">
+            Axum router + AppState
+            <span class="node-file">src/api/server.rs</span>
+          </div>
+          <div class="node-body">
+            Binds TCP listener; mounts all routes with shared <code>AppState</code> (SQLite pool, token expiry, arrays config, TOU config). Bearer-token middleware (<code>api/middleware/api_key.rs</code>) is implemented but <em>not yet wired into main.rs</em> — auth is currently inactive.
+          </div>
+        </div>
+
+        <div class="arrow-down">
+          <div class="arrow-stem"></div>
+          <div class="arrow-head"></div>
+          <div class="arrow-note">routes dispatched to handlers</div>
+        </div>
+
+        <div class="node api">
+          <div class="node-title">
+            API handlers
+            <span class="node-file">src/api/handlers/</span>
+          </div>
+          <div class="node-body">
+            All handlers are read-only against the shared SQLite pool:
+            <div class="route-list">
+              <div class="route"><span class="method">GET</span><span class="route-path">/api/health</span><span class="route-note">uptime, token expiry, TOU freshness</span></div>
+              <div class="route"><span class="method">GET</span><span class="route-path">/api/energy/windows</span><span class="route-note">paginated 15-min windows by time range</span></div>
+              <div class="route"><span class="method">GET</span><span class="route-path">/api/energy/windows/latest</span><span class="route-note">most recent completed window</span></div>
+              <div class="route"><span class="method">GET</span><span class="route-path">/api/inverters/snapshots</span><span class="route-note">per-inverter snapshots (paginated)</span></div>
+              <div class="route"><span class="method">GET</span><span class="route-path">/api/inverters/snapshots/window/{ts}</span><span class="route-note">snapshots for a specific window</span></div>
+              <div class="route"><span class="method">GET</span><span class="route-path">/api/inverters/arrays</span><span class="route-note">array groupings from config</span></div>
+              <div class="route"><span class="method post">POST</span><span class="route-path">/api/tou/refresh</span><span class="route-note">on-demand TOU schedule fetch from OpenEI</span></div>
+              <div class="route"><span class="method">GET</span><span class="route-path">/api/trueup/estimate</span><span class="route-note">NEM annual cost/credit estimate</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="arrow-down">
+          <div class="arrow-stem"></div>
+          <div class="arrow-head"></div>
+          <div class="arrow-note">GET /api/trueup/estimate invokes pure logic</div>
+        </div>
+
+        <div class="node logic">
+          <div class="node-title">
+            TrueUp Calculator
+            <span class="node-file">src/trueup/calculator.rs</span>
+            <span class="badge badge-pure">pure</span>
+          </div>
+          <div class="node-body">
+            Receives <code>&amp;TouRateSchedule</code> + <code>&amp;[EnergyWindow]</code>; returns <code>CalculatorResult</code>. Classifies each window into Peak / Off-Peak / Super Off-Peak by ranking OpenEI rate periods: highest rate → Peak; lowest rate (when ≥ 3 distinct periods) → Super Off-Peak; rest → Off-Peak. Stable sort preserves index order on rate ties. No I/O.
+          </div>
+        </div>
+
+        <div class="callout callout-blue">
+          The API server shares the SQLite pool with the collector. WAL mode allows concurrent readers alongside the single writer, so reads never block writes.
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Panel 2: TOU refresh loop -->
+    <div class="panel">
+      <div class="panel-title">
+        TOU auto-refresh loop · <span class="badge badge-bg">every 7 days</span>
+      </div>
+      <div class="vflow">
+
+        <div class="node tou">
+          <div class="node-title">
+            TOU Refresh Loop
+            <span class="node-file">src/tou/refresh.rs</span>
+            <span class="badge badge-bg">background</span>
+          </div>
+          <div class="node-body">
+            At startup: checks if the stored schedule is missing or older than 7 days; if so, fires an immediate refresh. Then enters an infinite loop sleeping 7 days between refreshes. Errors are logged but the loop never exits — failures are non-fatal.
+          </div>
+        </div>
+
+        <div class="arrow-down">
+          <div class="arrow-stem"></div>
+          <div class="arrow-head"></div>
+          <div class="arrow-note">fetches when stale · GET /utility_rates?eia=…</div>
+        </div>
+
+        <div class="node ext">
+          <div class="node-title">
+            OpenEI URDB API
+            <span class="node-file">api.openei.org · external</span>
+          </div>
+          <div class="node-body">
+            Third-party utility rate database. Returns residential TOU rate schedules as JSON with <code>energyweekdayschedule</code>, <code>energyweekendschedule</code>, and <code>energyratestructure</code>.
+          </div>
+        </div>
+
+        <div class="arrow-down">
+          <div class="arrow-stem"></div>
+          <div class="arrow-head"></div>
+          <div class="arrow-note">rate JSON · matched by rate_label name field</div>
+        </div>
+
+        <div class="node parse">
+          <div class="node-title">
+            OpenEiClient
+            <span class="node-file">src/tou/openei_client.rs</span>
+          </div>
+          <div class="node-body">
+            Fetches <code>GET /utility_rates?eia=…&amp;api_key=…</code>; finds the item matching <code>rate_label</code> by name; picks the most recent version by <code>startdate</code>. Returns a <code>FetchedSchedule</code> with raw rate JSON. Base URL overrideable via <code>with_base_url()</code> for tests.
+          </div>
+        </div>
+
+        <div class="arrow-down">
+          <div class="arrow-stem"></div>
+          <div class="arrow-head"></div>
+          <div class="arrow-note">FetchedSchedule inserted into DB</div>
+        </div>
+
+        <div class="node store">
+          <div class="node-title">
+            tou_schedule storage
+            <span class="node-file">src/storage/tou_schedule.rs</span>
+          </div>
+          <div class="node-body">
+            Inserts new versioned rows into <code>tou_rate_schedule</code>; never deletes existing rows. <code>query_latest(pool, rate_label)</code> used by handlers and probe.
+            <div class="schema-row">
+              <span class="table-chip">tou_rate_schedule</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-amber">
+          Two distinct freshness thresholds: the refresh loop fires at 7 days; the health endpoint and startup probe warn at 90 days. This prevents noisy warnings during the normal 7-day cadence.
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Panel 3: TOU probe (startup-once) -->
+    <div class="panel">
+      <div class="panel-title">
+        TOU startup probe · <span class="badge badge-once">once at boot</span>
+      </div>
+      <div class="vflow">
+
+        <div class="node tou">
+          <div class="node-title">
+            probe_tou_schedule
+            <span class="node-file">src/tou/probe.rs</span>
+            <span class="badge badge-once">once</span>
+          </div>
+          <div class="node-body">
+            Called from <code>main.rs</code> <em>before</em> the <code>tokio::select!</code> block. Queries <code>tou_rate_schedule</code> for the latest row matching <code>rate_label</code>. Emits structured log event <code>tou_schedule_ok</code> (info) if fresh; <code>tou_schedule_stale</code> (warn) if absent or older than 90 days. Warn-only — never exits the process.
+          </div>
+        </div>
+
+        <div class="callout callout-green">
+          The probe is diagnostic only — it does not trigger a fetch. Re-fetching is handled exclusively by the TOU refresh loop (7-day threshold). The two-threshold design (7 days vs 90 days) lets ops teams notice genuine stale schedules without false alarms during the normal refresh window.
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Panel 4: Process orchestrator -->
+    <div class="panel">
+      <div class="panel-title">
+        Process orchestrator · <span class="badge badge-bg">tokio::select!</span>
+      </div>
+      <div class="vflow">
+
+        <div class="node sched">
+          <div class="node-title">
+            main.rs — tokio::select!
+            <span class="node-file">src/main.rs</span>
+          </div>
+          <div class="node-body">
+            Sequential startup: load config → connect SQLite + run migrations → decode JWT → create AppState + GatewayClient + Scheduler → call <code>probe_tou_schedule</code>. Then races three async futures:
+            <ol style="margin-top:6px;margin-left:16px;font-size:10.5px;line-height:1.7;">
+              <li><strong>API server</strong> — <code>api::server::serve()</code></li>
+              <li><strong>Collector loop</strong> — <code>scheduler.run()</code></li>
+              <li><strong>TOU refresh loop</strong> — <code>tou::refresh::run_tou_refresh_loop()</code></li>
+            </ol>
+            If any task returns, <code>select!</code> drops the others. In normal operation all three run indefinitely.
+          </div>
+        </div>
+
+        <div class="callout callout-blue">
+          All three tasks share one <code>SqlitePool</code> clone. WAL mode ensures the single write connection (collector) does not block the read connections used by the API and TOU loops.
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Section C: Component isolation table ── -->
+  <div class="panel">
+    <div class="panel-title">Component isolation map</div>
+    <table class="iso-table">
+      <thead>
+        <tr>
+          <th>Component</th>
+          <th>File(s)</th>
+          <th>Input boundary</th>
+          <th>Output boundary</th>
+          <th>Isolated?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>main.rs</strong></td>
+          <td><code>src/main.rs</code></td>
+          <td>Config, env vars</td>
+          <td>Spawns API server, collector, TOU loop via tokio::select!</td>
+          <td class="hub">orchestration hub</td>
+        </tr>
+        <tr>
+          <td><strong>Config loader</strong></td>
+          <td><code>src/config.rs</code></td>
+          <td><code>config.toml</code>, <code>ENPHASE__*</code> env</td>
+          <td>Typed <code>Config</code> struct</td>
+          <td class="isolated">✓ full</td>
+        </tr>
+        <tr>
+          <td><strong>TokenManager</strong></td>
+          <td><code>src/auth/token_manager.rs</code></td>
+          <td>Raw JWT string</td>
+          <td>Expiry timestamp; <code>is_expired()</code>; <code>is_near_expiry()</code></td>
+          <td class="pure">✓ pure fn</td>
+        </tr>
+        <tr>
+          <td><strong>GatewayClient</strong></td>
+          <td><code>src/collector/gateway_client.rs</code></td>
+          <td>Host + JWT token</td>
+          <td><code>MeterReadings</code>, <code>Vec&lt;InverterReport&gt;</code></td>
+          <td class="isolated">✓ full</td>
+        </tr>
+        <tr>
+          <td><strong>Scheduler</strong></td>
+          <td><code>src/collector/scheduler.rs</code></td>
+          <td>GatewayClient, SqlitePool, interval</td>
+          <td>Writes EnergyWindow, MicroinverterSnapshot, config_store anchor</td>
+          <td class="hub">orchestration hub</td>
+        </tr>
+        <tr>
+          <td><strong>WindowAggregator</strong></td>
+          <td><code>src/collector/window_aggregator.rs</code></td>
+          <td>Two <code>CumulativeReading</code> structs</td>
+          <td><code>EnergyWindow</code> (pure delta math)</td>
+          <td class="pure">✓ pure fn</td>
+        </tr>
+        <tr>
+          <td><strong>InverterSnapshot parser</strong></td>
+          <td><code>src/inverter/snapshot.rs</code></td>
+          <td><code>Vec&lt;InverterReport&gt;</code>, window_start</td>
+          <td><code>Vec&lt;MicroinverterSnapshot&gt;</code></td>
+          <td class="pure">✓ pure fn</td>
+        </tr>
+        <tr>
+          <td><strong>storage/db</strong></td>
+          <td><code>src/storage/db.rs</code></td>
+          <td>db_path string</td>
+          <td><code>SqlitePool</code> (WAL mode, migrations applied)</td>
+          <td class="isolated">✓ full</td>
+        </tr>
+        <tr>
+          <td><strong>storage/energy_window</strong></td>
+          <td><code>src/storage/energy_window.rs</code></td>
+          <td>SqlitePool + typed args</td>
+          <td><code>Vec&lt;EnergyWindow&gt;</code> / row counts</td>
+          <td class="isolated">✓ full</td>
+        </tr>
+        <tr>
+          <td><strong>storage/inverter_snapshot</strong></td>
+          <td><code>src/storage/inverter_snapshot.rs</code></td>
+          <td>SqlitePool + typed args</td>
+          <td><code>Vec&lt;MicroinverterSnapshot&gt;</code></td>
+          <td class="isolated">✓ full</td>
+        </tr>
+        <tr>
+          <td><strong>storage/config_store</strong></td>
+          <td><code>src/storage/config_store.rs</code></td>
+          <td>SqlitePool + key/value strings</td>
+          <td><code>Option&lt;String&gt;</code></td>
+          <td class="isolated">✓ full</td>
+        </tr>
+        <tr>
+          <td><strong>storage/tou_schedule</strong></td>
+          <td><code>src/storage/tou_schedule.rs</code></td>
+          <td>SqlitePool + rate JSON</td>
+          <td><code>Option&lt;TouRateSchedule&gt;</code></td>
+          <td class="isolated">✓ full</td>
+        </tr>
+        <tr>
+          <td><strong>storage/true_up</strong></td>
+          <td><code>src/storage/true_up.rs</code></td>
+          <td>SqlitePool + <code>TrueUpEstimate</code></td>
+          <td>Insert result</td>
+          <td class="isolated">✓ full</td>
+        </tr>
+        <tr>
+          <td><strong>OpenEiClient</strong></td>
+          <td><code>src/tou/openei_client.rs</code></td>
+          <td>API key, EIA ID, rate label, base URL</td>
+          <td><code>FetchedSchedule</code> (raw rate JSON)</td>
+          <td class="isolated">✓ full</td>
+        </tr>
+        <tr>
+          <td><strong>TOU refresh loop</strong></td>
+          <td><code>src/tou/refresh.rs</code></td>
+          <td>SqlitePool, OpenEI creds</td>
+          <td>Writes <code>tou_rate_schedule</code> rows</td>
+          <td class="isolated">✓ full</td>
+        </tr>
+        <tr>
+          <td><strong>TOU probe</strong></td>
+          <td><code>src/tou/probe.rs</code></td>
+          <td>SqlitePool, rate_label</td>
+          <td>Structured log event (tou_schedule_ok / tou_schedule_stale)</td>
+          <td class="isolated">✓ full</td>
+        </tr>
+        <tr>
+          <td><strong>TrueUp calculator</strong></td>
+          <td><code>src/trueup/calculator.rs</code></td>
+          <td><code>&amp;TouRateSchedule</code>, <code>&amp;[EnergyWindow]</code></td>
+          <td><code>CalculatorResult</code> (pure math, no I/O)</td>
+          <td class="pure">✓ pure fn</td>
+        </tr>
+        <tr>
+          <td><strong>Axum router / AppState</strong></td>
+          <td><code>src/api/server.rs</code></td>
+          <td>AppState (pool, config)</td>
+          <td>Mounted HTTP router</td>
+          <td class="isolated">✓ full</td>
+        </tr>
+        <tr>
+          <td><strong>API handlers</strong></td>
+          <td><code>src/api/handlers/*.rs</code></td>
+          <td>HTTP request + AppState</td>
+          <td>JSON HTTP response</td>
+          <td class="isolated">✓ full</td>
+        </tr>
+        <tr>
+          <td><strong>API key middleware</strong></td>
+          <td><code>src/api/middleware/api_key.rs</code></td>
+          <td>Bearer token header</td>
+          <td>Allow / 401 Unauthorized</td>
+          <td class="isolated">✓ full — implemented; not yet wired into main.rs</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="iso-note">
+      <strong>Isolated (✓ full)</strong> — the component can be replaced by editing one file with no cascading changes to other modules.<br>
+      <strong>Pure fn (✓ pure fn)</strong> — stateless function with no I/O; trivially replaceable and unit-testable with a plain <code>assert_eq!</code>.<br>
+      <strong>Orchestration hub</strong> — intentionally calls multiple other components; this is expected and correct for coordinators. Replacing them requires coordinating all downstream contracts.
+    </p>
+  </div>
+
+</div>
+</body>
+</html>

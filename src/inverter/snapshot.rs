@@ -31,6 +31,7 @@ pub fn parse_snapshots(
                     0.0
                 },
                 is_online,
+                last_report_date: r.last_report_date,
             }
         })
         .collect()

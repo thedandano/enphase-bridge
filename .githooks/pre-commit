@@ -6,3 +6,14 @@ cargo fmt --check
 
 echo "[pre-commit] cargo clippy -- -D warnings"
 cargo clippy --all-targets -- -D warnings
+
+# If formula source files changed, require CURRENT_FORMULA_VERSION to change too
+if git diff --cached --name-only | grep -qE "window_aggregator\.rs|gateway_client\.rs"; then
+  if ! git diff --cached -- src/collector/window_aggregator.rs \
+       | grep -q "CURRENT_FORMULA_VERSION"; then
+    echo "ERROR: formula source changed but CURRENT_FORMULA_VERSION not bumped."
+    echo "  Increment CURRENT_FORMULA_VERSION in src/collector/window_aggregator.rs"
+    echo "  and update the pin test expected values in tests/unit/formula_version_pin.rs"
+    exit 1
+  fi
+fi

@@ -8,13 +8,14 @@ pub async fn insert_batch(
 ) -> Result<(), AppError> {
     for s in snapshots {
         sqlx::query(
-            "INSERT INTO microinverter_snapshot (window_start, serial_number, watts_output, is_online)
-             VALUES (?, ?, ?, ?)",
+            "INSERT INTO microinverter_snapshot (window_start, serial_number, watts_output, is_online, last_report_date)
+             VALUES (?, ?, ?, ?, ?)",
         )
         .bind(s.window_start)
         .bind(&s.serial_number)
         .bind(s.watts_output)
         .bind(s.is_online)
+        .bind(s.last_report_date)
         .execute(pool)
         .await
         .map_err(|e| AppError::Storage(StorageError::Database(e)))?;
@@ -27,7 +28,7 @@ pub async fn query_by_window(
     window_start: i64,
 ) -> Result<Vec<MicroinverterSnapshot>, AppError> {
     sqlx::query_as::<_, MicroinverterSnapshot>(
-        "SELECT id, window_start, serial_number, watts_output, is_online
+        "SELECT id, window_start, serial_number, watts_output, is_online, last_report_date
          FROM microinverter_snapshot WHERE window_start = ?
          ORDER BY serial_number ASC",
     )
@@ -45,7 +46,7 @@ pub async fn query_range(
     offset: i32,
 ) -> Result<Vec<MicroinverterSnapshot>, AppError> {
     sqlx::query_as::<_, MicroinverterSnapshot>(
-        "SELECT id, window_start, serial_number, watts_output, is_online
+        "SELECT id, window_start, serial_number, watts_output, is_online, last_report_date
          FROM microinverter_snapshot
          WHERE window_start >= ? AND window_start < ?
          ORDER BY window_start ASC, serial_number ASC LIMIT ? OFFSET ?",
@@ -86,7 +87,7 @@ pub async fn query_by_serial_range(
     offset: i32,
 ) -> Result<Vec<MicroinverterSnapshot>, AppError> {
     sqlx::query_as::<_, MicroinverterSnapshot>(
-        "SELECT id, window_start, serial_number, watts_output, is_online
+        "SELECT id, window_start, serial_number, watts_output, is_online, last_report_date
          FROM microinverter_snapshot
          WHERE serial_number = ? AND window_start >= ? AND window_start < ?
          ORDER BY window_start ASC LIMIT ? OFFSET ?",

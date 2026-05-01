@@ -25,6 +25,10 @@ pub struct GatewayConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct PollingConfig {
     pub interval_secs: u64,
+    #[serde(default)]
+    pub power_sample_retention_days: Option<u32>,
+    #[serde(default)]
+    pub phase_reading_retention_days: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

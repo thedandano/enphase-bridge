@@ -1,6 +1,6 @@
 use crate::api::server::AppState;
 use crate::error::AppError;
-use crate::storage::{config_store, tou_schedule};
+use crate::storage::{config_store, energy_window, tou_schedule};
 use axum::{Json, extract::State, response::IntoResponse};
 use serde::Serialize;
 
@@ -13,6 +13,9 @@ struct HealthResponse {
     tou_schedule_id: Option<i64>,
     tou_fetched_at: Option<i64>,
     tou_stale: bool,
+    unrecomputable_window_count: Option<i64>,
+    stale_window_count: Option<i64>,
+    clamped_window_count: Option<i64>,
 }
 
 pub async fn get_health(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
@@ -32,6 +35,28 @@ pub async fn get_health(State(state): State<AppState>) -> Result<impl IntoRespon
         }
     };
 
+    let unrecomputable_window_count = match energy_window::count_unrecomputable(&state.pool).await {
+        Ok(n) => Some(n),
+        Err(e) => {
+            tracing::error!(event = "health_count_unrecomputable_failed", error = %e);
+            None
+        }
+    };
+    let stale_window_count = match energy_window::count_stale(&state.pool).await {
+        Ok(n) => Some(n),
+        Err(e) => {
+            tracing::error!(event = "health_count_stale_failed", error = %e);
+            None
+        }
+    };
+    let clamped_window_count = match energy_window::count_clamped(&state.pool).await {
+        Ok(n) => Some(n),
+        Err(e) => {
+            tracing::error!(event = "health_count_clamped_failed", error = %e);
+            None
+        }
+    };
+
     Ok(Json(HealthResponse {
         status: "ok",
         last_window_start,
@@ -40,5 +65,8 @@ pub async fn get_health(State(state): State<AppState>) -> Result<impl IntoRespon
         tou_schedule_id,
         tou_fetched_at,
         tou_stale,
+        unrecomputable_window_count,
+        stale_window_count,
+        clamped_window_count,
     }))
 }

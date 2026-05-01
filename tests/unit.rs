@@ -20,3 +20,12 @@ mod openei_client_test;
 
 #[path = "unit/scheduler_test.rs"]
 mod scheduler_test;
+
+#[path = "unit/formula_version_pin.rs"]
+mod formula_version_pin;
+
+#[path = "unit/energy_window_formula_test.rs"]
+mod energy_window_formula_test;
+
+#[path = "unit/power_sample_test.rs"]
+mod power_sample_test;

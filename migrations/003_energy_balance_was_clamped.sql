@@ -1,0 +1,1 @@
+ALTER TABLE energy_window ADD COLUMN was_clamped INTEGER NOT NULL DEFAULT 0;

@@ -1,6 +1,7 @@
 use crate::api::handlers::energy::parse_iso_or;
 use crate::api::server::AppState;
 use crate::error::{ApiError, AppError, TouError};
+use crate::storage::energy_window::FormulaFilter;
 use crate::storage::models::TrueUpEstimate;
 use crate::storage::{energy_window, tou_schedule, true_up};
 use crate::trueup::calculator;
@@ -25,6 +26,7 @@ pub struct EstimateResponse {
     breakdown: Breakdown,
     tou_schedule: ScheduleMeta,
     computed_at: i64,
+    excluded_window_count: usize,
 }
 
 #[derive(Serialize)]
@@ -77,13 +79,39 @@ pub async fn get_estimate(
         .await?
         .ok_or(AppError::Tou(TouError::NoSchedule))?;
 
-    let windows =
-        energy_window::query_range(&state.pool, period_start, period_end, 50_000, 0).await?;
+    let windows = energy_window::query_range(
+        &state.pool,
+        period_start,
+        period_end,
+        50_000,
+        0,
+        FormulaFilter::CurrentOnly,
+    )
+    .await?;
 
     if windows.is_empty() {
         return Err(AppError::Api(ApiError::InsufficientData(
             "no energy windows found for the requested period".into(),
         )));
+    }
+
+    let all_windows = energy_window::query_range(
+        &state.pool,
+        period_start,
+        period_end,
+        50_000,
+        0,
+        FormulaFilter::All,
+    )
+    .await?;
+    let excluded_count = all_windows.len().saturating_sub(windows.len());
+    if excluded_count > 0 {
+        tracing::warn!(
+            event = "trueup_excluded_noncurrent_windows",
+            excluded = excluded_count,
+            period_start = period_start,
+            period_end = period_end,
+        );
     }
 
     let result = calculator::calculate(&schedule, &windows)?;
@@ -144,6 +172,7 @@ pub async fn get_estimate(
             effective_date: schedule.effective_date,
         },
         computed_at,
+        excluded_window_count: excluded_count,
     }))
 }
 

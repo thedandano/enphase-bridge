@@ -25,6 +25,11 @@ fn make_window(window_start: i64, import_wh: f64, export_wh: f64) -> EnergyWindo
         wh_grid_import: import_wh,
         wh_grid_export: export_wh,
         is_complete: true,
+        formula_version: 0,
+        was_clamped: false,
+        avg_production_w: None,
+        avg_consumption_w: None,
+        avg_grid_w: None,
     }
 }
 

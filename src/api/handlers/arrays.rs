@@ -24,6 +24,7 @@ struct InverterEntry {
     serial_number: String,
     watts_output: f64,
     is_online: bool,
+    last_report_date: i64,
 }
 
 pub async fn get_arrays(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
@@ -56,11 +57,13 @@ pub async fn get_arrays(State(state): State<AppState>) -> Result<impl IntoRespon
                         serial_number: sn.clone(),
                         watts_output: s.watts_output,
                         is_online: s.is_online,
+                        last_report_date: s.last_report_date,
                     },
                     None => InverterEntry {
                         serial_number: sn.clone(),
                         watts_output: 0.0,
                         is_online: false,
+                        last_report_date: 0,
                     },
                 })
                 .collect();

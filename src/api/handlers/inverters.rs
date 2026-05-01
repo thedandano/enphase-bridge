@@ -32,6 +32,7 @@ struct SnapshotItem {
     serial_number: String,
     watts_output: f64,
     is_online: bool,
+    last_report_date: i64,
 }
 
 #[derive(Serialize)]
@@ -45,6 +46,7 @@ pub struct InverterItem {
     pub serial_number: String,
     pub watts_output: f64,
     pub is_online: bool,
+    pub last_report_date: i64,
 }
 
 pub async fn get_snapshots(
@@ -73,6 +75,7 @@ pub async fn get_snapshots(
             serial_number: s.serial_number,
             watts_output: s.watts_output,
             is_online: s.is_online,
+            last_report_date: s.last_report_date,
         })
         .collect();
 
@@ -102,6 +105,7 @@ pub async fn get_snapshots_by_window(
             serial_number: s.serial_number,
             watts_output: s.watts_output,
             is_online: s.is_online,
+            last_report_date: s.last_report_date,
         })
         .collect();
 

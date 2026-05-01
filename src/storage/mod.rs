@@ -1,7 +1,10 @@
+pub mod boundary_snapshot;
 pub mod config_store;
 pub mod db;
 pub mod energy_window;
 pub mod inverter_snapshot;
 pub mod models;
+pub mod phase_reading;
+pub mod power_sample;
 pub mod tou_schedule;
 pub mod true_up;

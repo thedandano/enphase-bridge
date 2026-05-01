@@ -69,6 +69,8 @@ async fn main() -> anyhow::Result<()> {
         gateway_client,
         pool.clone(),
         config.polling.interval_secs,
+        config.polling.power_sample_retention_days.unwrap_or(400),
+        config.polling.phase_reading_retention_days.unwrap_or(400),
     );
 
     let api_host = config.api.host.clone();

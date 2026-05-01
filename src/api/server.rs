@@ -1,4 +1,4 @@
-use crate::api::handlers::{arrays, energy, health, inverters, tou, trueup};
+use crate::api::handlers::{arrays, energy, health, inverters, phases, power, tou, trueup};
 use axum::{
     Router,
     routing::{get, post},
@@ -31,6 +31,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/inverters/arrays", get(arrays::get_arrays))
         .route("/api/tou/refresh", post(tou::refresh_tou))
         .route("/api/trueup/estimate", get(trueup::get_estimate))
+        .route("/api/power/samples", get(power::get_power_samples))
+        .route("/api/power/phases", get(phases::get_phase_readings))
         .with_state(state)
 }
 

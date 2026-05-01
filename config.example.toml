@@ -4,6 +4,7 @@ token = "eyJ..."          # JWT from Enphase cloud — do not commit the real va
 
 [polling]
 interval_secs = 60        # Poll interval in seconds (minimum: 15)
+# power_sample_retention_days = 400  # How many days of raw power samples to keep (default: 400)
 
 [api]
 host = "0.0.0.0"

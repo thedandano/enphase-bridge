@@ -4,7 +4,7 @@ use crate::storage::models::MicroinverterSnapshot;
 use reqwest::Client;
 use reqwest::header::SET_COOKIE;
 use serde::Deserialize;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -18,11 +18,36 @@ pub struct MeterReadings {
     pub grid_import_cum_wh: f64,
     /// Lifetime Wh exported to grid (actEnergyRcvd on net-consumption meter, EID 704643584)
     pub grid_export_cum_wh: f64,
+    /// Raw response body from the same HTTP request that produced the cumulative fields.
+    /// Must never be reused across poll ticks.
+    pub raw_json: String,
+    /// Per-channel readings extracted from meters that have channels
+    pub channel_readings: Vec<ChannelReading>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChannelReading {
+    pub meter_eid: u64,
+    pub channel_eid: u64,
+    pub active_power: f64,
+    pub act_energy_dlvd: f64,
+    pub act_energy_rcvd: f64,
 }
 
 const EID_PRODUCTION: u64 = 704643328;
 const EID_CONSUMPTION: u64 = 704643584;
 const EID_NET: u64 = 1023410688;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MeterChannel {
+    pub eid: u64,
+    #[serde(rename = "activePower", default)]
+    pub active_power: f64,
+    #[serde(rename = "actEnergyDlvd", default)]
+    pub act_energy_dlvd: f64,
+    #[serde(rename = "actEnergyRcvd", default)]
+    pub act_energy_rcvd: f64,
+}
 
 #[derive(Debug, Deserialize)]
 struct MeterObject {
@@ -33,6 +58,8 @@ struct MeterObject {
     act_energy_dlvd: f64,
     #[serde(rename = "actEnergyRcvd", default)]
     act_energy_rcvd: f64,
+    #[serde(default)]
+    channels: Option<Vec<MeterChannel>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -221,30 +248,12 @@ impl GatewayClient {
             ))));
         }
 
-        let meters: Vec<MeterObject> = response.json().await.map_err(|e| {
+        let body = response.text().await.map_err(|e| {
             error!(event = "gateway_parse_error", error = %e);
             AppError::Gateway(GatewayError::MalformedResponse(e.to_string()))
         })?;
 
-        let prod = meters.iter().find(|m| m.eid == EID_PRODUCTION);
-        let cons = meters
-            .iter()
-            .find(|m| m.eid == EID_CONSUMPTION)
-            .ok_or_else(|| {
-                AppError::Gateway(GatewayError::MissingMeter("net-consumption".to_string()))
-            })?;
-        // EID_NET is undocumented; used only for optional real-time grid_w_now (display only, not window math)
-        let net = meters.iter().find(|m| m.eid == EID_NET);
-
-        Ok(MeterReadings {
-            production_w_now: prod.map(|m| m.active_power).unwrap_or(0.0),
-            // Consumption activePower is negative in Enphase convention — negate to positive watts
-            consumption_w_now: -cons.active_power,
-            grid_w_now: net.map(|m| m.active_power).unwrap_or(0.0),
-            production_cum_wh: prod.map(|m| m.act_energy_dlvd).unwrap_or(0.0),
-            grid_import_cum_wh: cons.act_energy_dlvd,
-            grid_export_cum_wh: cons.act_energy_rcvd,
-        })
+        extract_cumulatives_from_json(&body)
     }
 
     #[instrument(skip(self), fields(endpoint = "/api/v1/production/inverters"))]
@@ -276,6 +285,57 @@ impl GatewayClient {
 
         Ok(parse_snapshots(reports, window_start))
     }
+}
+
+/// Parse a raw `/ivp/meters/readings` JSON response body into `MeterReadings`.
+/// This is the pure extraction logic decoupled from the HTTP transport.
+pub fn extract_cumulatives_from_json(raw: &str) -> Result<MeterReadings, AppError> {
+    let meters: Vec<MeterObject> = serde_json::from_str(raw).map_err(|e| {
+        error!(event = "gateway_parse_error", error = %e);
+        AppError::Gateway(GatewayError::MalformedResponse(e.to_string()))
+    })?;
+
+    let prod = meters.iter().find(|m| m.eid == EID_PRODUCTION);
+    let cons = meters
+        .iter()
+        .find(|m| m.eid == EID_CONSUMPTION)
+        .ok_or_else(|| {
+            AppError::Gateway(GatewayError::MissingMeter("net-consumption".to_string()))
+        })?;
+    // EID_NET is undocumented; used only for optional real-time grid_w_now (display only, not window math)
+    let net = meters.iter().find(|m| m.eid == EID_NET);
+
+    let mut channel_readings = Vec::new();
+    for m in &meters {
+        match &m.channels {
+            None => {
+                warn!(event = "channels_absent", meter_eid = m.eid);
+            }
+            Some(channels) => {
+                for ch in channels {
+                    channel_readings.push(ChannelReading {
+                        meter_eid: m.eid,
+                        channel_eid: ch.eid,
+                        active_power: ch.active_power,
+                        act_energy_dlvd: ch.act_energy_dlvd,
+                        act_energy_rcvd: ch.act_energy_rcvd,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(MeterReadings {
+        production_w_now: prod.map(|m| m.active_power).unwrap_or(0.0),
+        // Consumption activePower is negative in Enphase convention — negate to positive watts
+        consumption_w_now: -cons.active_power,
+        grid_w_now: net.map(|m| m.active_power).unwrap_or(0.0),
+        production_cum_wh: prod.map(|m| m.act_energy_dlvd).unwrap_or(0.0),
+        grid_import_cum_wh: cons.act_energy_dlvd,
+        grid_export_cum_wh: cons.act_energy_rcvd,
+        raw_json: raw.to_string(),
+        channel_readings,
+    })
 }
 
 /// Extract the sessionId value from a Set-Cookie header value.
