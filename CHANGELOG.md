@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/thedandano/enphase-bridge/compare/enphase-bridge-v0.2.2...enphase-bridge-v0.3.0) (2026-05-01)
+
+
+### Features
+
+* implement full observability backlog — boundary snapshots, energy balance, inverter timestamps, power samples, phase readings ([26aaa49](https://github.com/thedandano/enphase-bridge/commit/26aaa49180a3edc80d864ee1127325fb438661e7))
+
+
+### Bug Fixes
+
+* stub all crate targets in Dockerfile dep-cache layer ([426d622](https://github.com/thedandano/enphase-bridge/commit/426d622d3e8897150cd840d5b176ae18dbaa698b))
+
 ## [0.2.2](https://github.com/thedandano/enphase-bridge/compare/enphase-bridge-v0.2.1...enphase-bridge-v0.2.2) (2026-04-30)
 
 
