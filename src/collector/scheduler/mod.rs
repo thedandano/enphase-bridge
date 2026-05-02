@@ -120,6 +120,30 @@ impl Scheduler {
             readings.grid_w_now,
         ));
 
+        self.process_window_boundary(last_reading, curr, now, &readings, accumulator)
+            .await;
+
+        run_retention_if_due(
+            &self.pool,
+            now,
+            last_retention_check,
+            self.retention_days,
+            self.phase_retention_days,
+        )
+        .await;
+    }
+
+    /// Decide whether `now` crosses a 15-min window boundary; on crossing, run window-close and
+    /// reset the accumulator. On a mid-window tick, the previous anchor is kept frozen. On cold
+    /// start (no previous reading), `curr` is stored as the new anchor.
+    async fn process_window_boundary(
+        &self,
+        last_reading: &mut Option<CumulativeReading>,
+        curr: CumulativeReading,
+        now: i64,
+        readings: &crate::collector::gateway_client::MeterReadings,
+        accumulator: &mut Vec<(f64, f64, f64)>,
+    ) {
         if let Some(prev) = last_reading.take() {
             let prev_window = window_boundary(prev.timestamp);
             let curr_window = window_boundary(now);
@@ -133,7 +157,7 @@ impl Scheduler {
                         prev: &prev,
                         curr: &curr,
                         now,
-                        readings: &readings,
+                        readings,
                         accumulator: accumulator.as_slice(),
                     },
                 )
@@ -147,15 +171,6 @@ impl Scheduler {
         } else {
             *last_reading = Some(curr);
         }
-
-        run_retention_if_due(
-            &self.pool,
-            now,
-            last_retention_check,
-            self.retention_days,
-            self.phase_retention_days,
-        )
-        .await;
     }
 
     async fn load_persisted_reading(&self) -> Option<CumulativeReading> {
