@@ -1,8 +1,6 @@
+use crate::constants::INVERTER_OFFLINE_THRESHOLD_SECS;
 use crate::storage::models::MicroinverterSnapshot;
 use serde::Deserialize;
-
-// Inverter is considered offline if last report is older than 20 minutes
-const OFFLINE_THRESHOLD_SECS: i64 = 20 * 60;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,7 +18,7 @@ pub fn parse_snapshots(
     reports
         .into_iter()
         .map(|r| {
-            let is_online = (now - r.last_report_date) < OFFLINE_THRESHOLD_SECS;
+            let is_online = (now - r.last_report_date) < INVERTER_OFFLINE_THRESHOLD_SECS;
             MicroinverterSnapshot {
                 id: 0,
                 window_start,

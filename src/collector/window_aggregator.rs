@@ -1,6 +1,6 @@
+pub use crate::constants::WINDOW_SECS;
 use crate::storage::models::EnergyWindow;
 
-pub const WINDOW_SECS: i64 = 15 * 60;
 pub const CURRENT_FORMULA_VERSION: i32 = 1;
 
 #[derive(Debug, Clone)]
