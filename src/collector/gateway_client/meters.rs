@@ -1,10 +1,16 @@
-use crate::error::{AppError, GatewayError};
-use crate::inverter::snapshot::{InverterReport, parse_snapshots};
-use crate::storage::models::MicroinverterSnapshot;
-use reqwest::Client;
-use reqwest::header::SET_COOKIE;
 use serde::Deserialize;
 use tracing::{debug, error, info, instrument, warn};
+
+use crate::error::{AppError, GatewayError};
+
+use super::{GatewayClient, METER_STATE_ENABLED, MeterInfo, NET_CONSUMPTION_MEASUREMENT_TYPE};
+
+const EID_PRODUCTION: u64 = 704643328;
+/// Net-consumption meter EID — documented in Enphase IQ Gateway Local APIs tech brief (Jan 2023).
+/// Grid import (`actEnergyDlvd`) and grid export (`actEnergyRcvd`) are both read from this meter.
+const EID_NET_CONSUMPTION: u64 = 704643584;
+/// Undocumented net meter EID — used only for optional real-time grid_w_now (display, not window math).
+const EID_NET: u64 = 1023410688;
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -34,12 +40,8 @@ pub struct ChannelReading {
     pub act_energy_rcvd: f64,
 }
 
-const EID_PRODUCTION: u64 = 704643328;
-const EID_CONSUMPTION: u64 = 704643584;
-const EID_NET: u64 = 1023410688;
-
 #[derive(Debug, Clone, Deserialize)]
-pub struct MeterChannel {
+pub(crate) struct MeterChannel {
     pub eid: u64,
     #[serde(rename = "activePower", default)]
     pub active_power: f64,
@@ -62,77 +64,7 @@ struct MeterObject {
     channels: Option<Vec<MeterChannel>>,
 }
 
-#[derive(Debug, Deserialize)]
-struct MeterInfo {
-    eid: u64,
-    #[serde(rename = "measurementType")]
-    measurement_type: String,
-    state: String,
-}
-
-pub struct GatewayClient {
-    pub(crate) base_url: String,
-    pub(crate) token: String,
-    pub(crate) client: Client,
-    session_id: Option<String>,
-}
-
 impl GatewayClient {
-    pub fn new(host: String, token: String) -> Self {
-        // Self-signed TLS cert on the IQ Gateway — accept invalid certs for this client only.
-        let client = Client::builder()
-            .danger_accept_invalid_certs(true)
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-            .expect("failed to build gateway HTTP client");
-
-        let base_url = if host.starts_with("http") {
-            host
-        } else {
-            format!("https://{}", host)
-        };
-
-        Self {
-            base_url,
-            token,
-            client,
-            session_id: None,
-        }
-    }
-
-    /// Exchange the cloud JWT for a local session token via POST /auth/check_jwt.
-    /// IQ Gateway firmware 7.x+ requires this session cookie for /ivp/ endpoints.
-    pub async fn check_jwt(&mut self) -> Result<(), AppError> {
-        let url = format!("{}/auth/check_jwt", self.base_url);
-        debug!(event = "check_jwt_request", url = %url);
-
-        let response = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.token))
-            .send()
-            .await
-            .map_err(|e| AppError::Gateway(GatewayError::Request(e)))?;
-
-        let status = response.status();
-        if !status.is_success() {
-            error!(event = "session_auth_failed", status = %status);
-            return Err(AppError::Gateway(GatewayError::Unauthorized));
-        }
-
-        self.session_id = response
-            .headers()
-            .get(SET_COOKIE)
-            .and_then(|v| v.to_str().ok())
-            .and_then(parse_session_cookie);
-
-        debug!(
-            event = "session_acquired",
-            has_session = self.session_id.is_some()
-        );
-        Ok(())
-    }
-
     /// Probe GET /ivp/meters to validate that the net-consumption meter is present and enabled.
     /// Called once at scheduler startup after check_jwt(); halts if the required meter is absent.
     pub async fn probe_meters(&mut self) -> Result<(), AppError> {
@@ -142,7 +74,7 @@ impl GatewayClient {
         let mut req = self
             .client
             .get(&url)
-            .header("Authorization", format!("Bearer {}", self.token));
+            .header("Authorization", self.auth_header());
 
         if let Some(cookie) = self.cookie_header() {
             req = req.header("Cookie", cookie);
@@ -167,24 +99,24 @@ impl GatewayClient {
 
         let net_cons = meters
             .iter()
-            .find(|m| m.measurement_type == "net-consumption");
+            .find(|m| m.measurement_type == NET_CONSUMPTION_MEASUREMENT_TYPE);
 
         match net_cons {
             None => {
                 let seen: Vec<&str> = meters.iter().map(|m| m.measurement_type.as_str()).collect();
                 error!(
                     event = "required_meter_absent",
-                    meter_type = "net-consumption",
+                    meter_type = NET_CONSUMPTION_MEASUREMENT_TYPE,
                     seen_types = ?seen
                 );
                 Err(AppError::Gateway(GatewayError::MissingMeter(
-                    "net-consumption".to_string(),
+                    NET_CONSUMPTION_MEASUREMENT_TYPE.to_string(),
                 )))
             }
-            Some(m) if m.state != "enabled" => {
+            Some(m) if m.state != METER_STATE_ENABLED => {
                 error!(
                     event = "meter_disabled",
-                    meter_type = "net-consumption",
+                    meter_type = NET_CONSUMPTION_MEASUREMENT_TYPE,
                     state = %m.state
                 );
                 Err(AppError::Gateway(GatewayError::MissingMeter(format!(
@@ -201,10 +133,6 @@ impl GatewayClient {
                 Ok(())
             }
         }
-    }
-
-    fn cookie_header(&self) -> Option<String> {
-        self.session_id.as_ref().map(|id| format!("sessionId={id}"))
     }
 
     #[instrument(skip(self), fields(endpoint = "/ivp/meters/readings"))]
@@ -225,7 +153,7 @@ impl GatewayClient {
         let mut req = self
             .client
             .get(&url)
-            .header("Authorization", format!("Bearer {}", self.token));
+            .header("Authorization", self.auth_header());
 
         if let Some(cookie) = self.cookie_header() {
             req = req.header("Cookie", cookie);
@@ -255,36 +183,6 @@ impl GatewayClient {
 
         extract_cumulatives_from_json(&body)
     }
-
-    #[instrument(skip(self), fields(endpoint = "/api/v1/production/inverters"))]
-    pub async fn get_inverter_snapshots(
-        &self,
-        window_start: i64,
-    ) -> Result<Vec<MicroinverterSnapshot>, AppError> {
-        let url = format!("{}/api/v1/production/inverters", self.base_url);
-
-        let response = self
-            .client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.token))
-            .send()
-            .await
-            .map_err(|e| AppError::Gateway(GatewayError::Request(e)))?;
-
-        if !response.status().is_success() {
-            return Err(AppError::Gateway(GatewayError::Unreachable(format!(
-                "inverters endpoint returned HTTP {}",
-                response.status()
-            ))));
-        }
-
-        let reports: Vec<InverterReport> = response
-            .json()
-            .await
-            .map_err(|e| AppError::Gateway(GatewayError::MalformedResponse(e.to_string())))?;
-
-        Ok(parse_snapshots(reports, window_start))
-    }
 }
 
 /// Parse a raw `/ivp/meters/readings` JSON response body into `MeterReadings`.
@@ -298,11 +196,12 @@ pub fn extract_cumulatives_from_json(raw: &str) -> Result<MeterReadings, AppErro
     let prod = meters.iter().find(|m| m.eid == EID_PRODUCTION);
     let cons = meters
         .iter()
-        .find(|m| m.eid == EID_CONSUMPTION)
+        .find(|m| m.eid == EID_NET_CONSUMPTION)
         .ok_or_else(|| {
-            AppError::Gateway(GatewayError::MissingMeter("net-consumption".to_string()))
+            AppError::Gateway(GatewayError::MissingMeter(
+                NET_CONSUMPTION_MEASUREMENT_TYPE.to_string(),
+            ))
         })?;
-    // EID_NET is undocumented; used only for optional real-time grid_w_now (display only, not window math)
     let net = meters.iter().find(|m| m.eid == EID_NET);
 
     let mut channel_readings = Vec::new();
@@ -336,14 +235,4 @@ pub fn extract_cumulatives_from_json(raw: &str) -> Result<MeterReadings, AppErro
         raw_json: raw.to_string(),
         channel_readings,
     })
-}
-
-/// Extract the sessionId value from a Set-Cookie header value.
-/// Expects format: "sessionId=<value>; attr; attr"
-pub fn parse_session_cookie(header_value: &str) -> Option<String> {
-    header_value
-        .split(';')
-        .next()
-        .and_then(|s| s.trim().strip_prefix("sessionId="))
-        .map(str::to_owned)
 }

@@ -1,4 +1,5 @@
 mod boundary;
+mod startup;
 mod window_close;
 
 use sqlx::SqlitePool;
@@ -7,14 +8,9 @@ use tokio::time;
 use tracing::{error, info};
 
 use crate::collector::gateway_client::GatewayClient;
-use crate::collector::window_aggregator::{
-    CURRENT_FORMULA_VERSION, CumulativeReading, compute_delta, window_boundary,
-};
+use crate::collector::window_aggregator::{CumulativeReading, window_boundary};
 use crate::constants::DAY_SECS;
-use crate::storage::{
-    boundary_snapshot, config_store, energy_window as ew_store, phase_reading as phase_store,
-    power_sample as ps_store,
-};
+use crate::storage::{phase_reading as phase_store, power_sample as ps_store};
 
 const KEY_LAST_TS: &str = "last_poll_timestamp";
 const KEY_PROD_WH: &str = "last_cumulative_production_wh";
@@ -57,10 +53,10 @@ impl Scheduler {
             return;
         }
 
-        startup_recompute(&self.pool).await;
+        startup::startup_recompute(&self.pool).await;
 
         let mut ticker = time::interval(self.interval);
-        let mut last_reading = self.load_persisted_reading().await;
+        let mut last_reading = startup::load_persisted_reading(&self.pool).await;
         let mut accumulator: Vec<(f64, f64, f64)> = Vec::new();
         let mut last_retention_check: i64 = 0;
 
@@ -172,23 +168,6 @@ impl Scheduler {
             *last_reading = Some(curr);
         }
     }
-
-    async fn load_persisted_reading(&self) -> Option<CumulativeReading> {
-        let ts = config_store::get(&self.pool, KEY_LAST_TS).await.ok()??;
-        let prod = config_store::get(&self.pool, KEY_PROD_WH).await.ok()??;
-        let grid_import = config_store::get(&self.pool, KEY_GRID_IMPORT_WH)
-            .await
-            .ok()??;
-        let grid_export = config_store::get(&self.pool, KEY_GRID_EXPORT_WH)
-            .await
-            .ok()??;
-        Some(CumulativeReading {
-            timestamp: ts.parse().ok()?,
-            production_wh: prod.parse().ok()?,
-            grid_import_cum_wh: grid_import.parse().ok()?,
-            grid_export_cum_wh: grid_export.parse().ok()?,
-        })
-    }
 }
 
 /// Prune power-sample and phase-reading rows older than the configured retention windows,
@@ -220,82 +199,6 @@ async fn run_retention_if_due(
     *last_retention_check = now;
 }
 
-// Recompute stale energy windows using stored boundary snapshot pairs.
-pub async fn startup_recompute(pool: &SqlitePool) {
-    let stale = match ew_store::query_stale(pool).await {
-        Ok(rows) => rows,
-        Err(e) => {
-            error!(event = "startup_recompute_query_failed", error = %e);
-            return;
-        }
-    };
-
-    let (mut examined, mut updated, mut no_anchor) = (0usize, 0usize, 0usize);
-
-    for row in &stale {
-        examined += 1;
-        match boundary_snapshot::query_pair(pool, row.window_start).await {
-            Ok(None) => {
-                tracing::warn!(
-                    event = "recompute_no_anchor",
-                    window_start = row.window_start
-                );
-                no_anchor += 1;
-            }
-            Ok(Some((prev, curr))) => {
-                let prev_reading = CumulativeReading {
-                    timestamp: prev.captured_at,
-                    production_wh: prev.production_wh,
-                    grid_import_cum_wh: prev.grid_import_cum_wh,
-                    grid_export_cum_wh: prev.grid_export_cum_wh,
-                };
-                let curr_reading = CumulativeReading {
-                    timestamp: curr.captured_at,
-                    production_wh: curr.production_wh,
-                    grid_import_cum_wh: curr.grid_import_cum_wh,
-                    grid_export_cum_wh: curr.grid_export_cum_wh,
-                };
-                let delta = compute_delta(row.window_start, &prev_reading, &curr_reading, true);
-                if delta.was_clamped {
-                    tracing::warn!(
-                        event = "energy_balance_clamped",
-                        window_start = delta.window_start
-                    );
-                }
-                match ew_store::update_recomputed(
-                    pool,
-                    row.window_start,
-                    delta.wh_produced,
-                    delta.wh_consumed,
-                    delta.wh_grid_import,
-                    delta.wh_grid_export,
-                    CURRENT_FORMULA_VERSION,
-                    delta.was_clamped,
-                )
-                .await
-                {
-                    Ok(()) => updated += 1,
-                    Err(e) => {
-                        error!(
-                            event = "recompute_update_failed",
-                            window_start = row.window_start,
-                            error = %e
-                        )
-                    }
-                }
-            }
-            Err(e) => {
-                error!(
-                    event = "recompute_pair_query_failed",
-                    window_start = row.window_start,
-                    error = %e
-                );
-            }
-        }
-    }
-
-    info!(
-        event = "startup_recompute_complete",
-        examined, updated, no_anchor
-    );
-}
+// Re-export for integration test callers that import via `collector::scheduler::startup_recompute`.
+#[allow(unused_imports)]
+pub use startup::startup_recompute;
