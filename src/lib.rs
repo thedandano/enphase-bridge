@@ -2,6 +2,7 @@ pub mod api;
 pub mod auth;
 pub mod collector;
 pub mod config;
+pub mod constants;
 pub mod error;
 pub mod inverter;
 pub mod storage;

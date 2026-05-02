@@ -1,10 +1,9 @@
+use crate::constants::TOU_REFRESH_INTERVAL_SECS;
 use crate::error::AppError;
 use crate::storage::tou_schedule;
 use crate::tou::openei_client::OpenEiClient;
 use sqlx::SqlitePool;
 use std::time::Duration;
-
-const REFRESH_TRIGGER_SECS: i64 = 7 * 24 * 3600;
 
 pub async fn run_tou_refresh_loop(
     pool: SqlitePool,
@@ -24,7 +23,7 @@ pub async fn run_tou_refresh_loop(
     }
 
     loop {
-        tokio::time::sleep(Duration::from_secs(7 * 24 * 3600)).await;
+        tokio::time::sleep(Duration::from_secs(TOU_REFRESH_INTERVAL_SECS as u64)).await;
         if let Err(e) = do_refresh(
             &pool,
             &api_key,
@@ -42,7 +41,7 @@ pub async fn run_tou_refresh_loop(
 async fn needs_refresh_now(pool: &SqlitePool, rate_label: &str) -> bool {
     let now = crate::util::unix_now();
     match tou_schedule::query_latest(pool, rate_label).await {
-        Ok(Some(s)) => (now - s.fetched_at) > REFRESH_TRIGGER_SECS,
+        Ok(Some(s)) => (now - s.fetched_at) > TOU_REFRESH_INTERVAL_SECS,
         Ok(None) => true,
         Err(_) => false,
     }

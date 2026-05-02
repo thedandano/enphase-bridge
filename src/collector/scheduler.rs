@@ -7,6 +7,7 @@ use crate::collector::gateway_client::GatewayClient;
 use crate::collector::window_aggregator::{
     CURRENT_FORMULA_VERSION, CumulativeReading, compute_delta, window_boundary,
 };
+use crate::constants::DAY_SECS;
 use crate::storage::{
     boundary_snapshot, config_store, energy_window as ew_store, inverter_snapshot as inv_store,
     phase_reading as phase_store, power_sample as ps_store,
@@ -377,13 +378,13 @@ impl Scheduler {
                 last_reading = Some(curr);
             }
 
-            if now - last_retention_check >= 86400 {
-                let cutoff = now - (self.retention_days as i64 * 86400);
+            if now - last_retention_check >= DAY_SECS {
+                let cutoff = now - (self.retention_days as i64 * DAY_SECS);
                 match ps_store::delete_before(&self.pool, cutoff).await {
                     Ok(deleted) => info!(event = "power_sample_retention", deleted, cutoff),
                     Err(e) => error!(event = "power_sample_retention_error", error = %e),
                 }
-                let phase_cutoff = now - (self.phase_retention_days as i64 * 86400);
+                let phase_cutoff = now - (self.phase_retention_days as i64 * DAY_SECS);
                 match phase_store::delete_before(&self.pool, phase_cutoff).await {
                     Ok(deleted) => info!(
                         event = "phase_reading_retention",

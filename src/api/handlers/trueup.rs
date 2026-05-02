@@ -1,5 +1,6 @@
 use crate::api::handlers::energy::parse_iso_or;
 use crate::api::server::AppState;
+use crate::constants::DAY_SECS;
 use crate::error::{ApiError, AppError, TouError};
 use crate::storage::energy_window::FormulaFilter;
 use crate::storage::models::TrueUpEstimate;
@@ -73,7 +74,7 @@ pub async fn get_estimate(
 
     // energy_window::query_range uses exclusive end (`window_start < ?`); add one day so the
     // user-supplied UTC midnight date is inclusive. Callers must pass `end` as a UTC instant.
-    let period_end = period_end + 86_400;
+    let period_end = period_end + DAY_SECS;
 
     let schedule = tou_schedule::query_latest(&state.pool, &state.tou_rate_label)
         .await?

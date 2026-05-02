@@ -1,14 +1,17 @@
+use crate::constants::{DAY_SECS, TOU_STALE_THRESHOLD_SECS};
 use crate::storage::tou_schedule;
 use sqlx::SqlitePool;
 
-pub(crate) const STALE_THRESHOLD_SECS: i64 = 90 * 24 * 3600;
+// Alias kept so existing tests (which use `use super::*`) continue to compile unchanged.
+#[allow(unused_imports)]
+pub(crate) use crate::constants::TOU_STALE_THRESHOLD_SECS as STALE_THRESHOLD_SECS;
 
 pub async fn probe_tou_schedule(pool: &SqlitePool, rate_label: &str) {
     let now = crate::util::unix_now();
     match tou_schedule::query_latest(pool, rate_label).await {
         Ok(Some(schedule)) => {
-            let age_days = (now - schedule.fetched_at) / (24 * 3600);
-            if now - schedule.fetched_at > STALE_THRESHOLD_SECS {
+            let age_days = (now - schedule.fetched_at) / DAY_SECS;
+            if now - schedule.fetched_at > TOU_STALE_THRESHOLD_SECS {
                 tracing::warn!(event = "tou_schedule_stale", age_days = age_days);
             } else {
                 tracing::info!(event = "tou_schedule_ok", age_days = age_days);
