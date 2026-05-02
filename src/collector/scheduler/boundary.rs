@@ -2,6 +2,7 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 use tracing::{error, info, warn};
 
 use crate::collector::window_aggregator::{CumulativeReading, compute_delta};
+use crate::storage::models::EnergyWindow;
 use crate::storage::{config_store, energy_window as ew_store, power_sample as ps_store};
 
 /// Averaged watts over the accumulator ticks for a closed window.
@@ -49,35 +50,7 @@ pub(super) async fn handle_boundary_snapshot_tx(pool: &SqlitePool, ctx: &Boundar
     let raw_json_bytes = ctx.raw_json.len();
 
     if raw_json_bytes > 262_144 {
-        // JSON too large — skip snapshot, write window as unrecomputable (formula_version = 0)
-        error!(
-            event = "boundary_json_too_large",
-            bytes = raw_json_bytes,
-            window_start = ctx.prev_window
-        );
-        let mut unrecomputable_window = compute_delta(ctx.prev_window, ctx.prev, ctx.curr, true);
-        unrecomputable_window.formula_version = 0;
-        unrecomputable_window.avg_production_w = ctx.avgs.prod;
-        unrecomputable_window.avg_consumption_w = ctx.avgs.cons;
-        unrecomputable_window.avg_grid_w = ctx.avgs.grid;
-        if unrecomputable_window.was_clamped {
-            warn!(
-                event = "energy_balance_clamped",
-                window_start = unrecomputable_window.window_start
-            );
-        }
-        match ew_store::insert(pool, &unrecomputable_window).await {
-            Ok(()) => {
-                info!(
-                    event = "window_stored_unrecomputable",
-                    window_start = ctx.prev_window,
-                    reason = "boundary_json_too_large"
-                );
-                let _ = config_store::set(pool, "last_window_start", &ctx.prev_window.to_string())
-                    .await;
-            }
-            Err(e) => error!(event = "window_store_error", error = %e),
-        }
+        write_unrecomputable_window_oversize(pool, ctx, raw_json_bytes).await;
         return;
     }
 
@@ -100,6 +73,42 @@ pub(super) async fn handle_boundary_snapshot_tx(pool: &SqlitePool, ctx: &Boundar
     };
 
     run_boundary_tx(tx, pool, ctx).await;
+}
+
+/// JSON payload exceeded 262 144 bytes: skip snapshot, write window as unrecomputable (formula_version=0).
+async fn write_unrecomputable_window_oversize(
+    pool: &SqlitePool,
+    ctx: &BoundaryCtx<'_>,
+    raw_json_bytes: usize,
+) {
+    error!(
+        event = "boundary_json_too_large",
+        bytes = raw_json_bytes,
+        window_start = ctx.prev_window
+    );
+    let mut unrecomputable_window = compute_delta(ctx.prev_window, ctx.prev, ctx.curr, true);
+    unrecomputable_window.formula_version = 0;
+    unrecomputable_window.avg_production_w = ctx.avgs.prod;
+    unrecomputable_window.avg_consumption_w = ctx.avgs.cons;
+    unrecomputable_window.avg_grid_w = ctx.avgs.grid;
+    if unrecomputable_window.was_clamped {
+        warn!(
+            event = "energy_balance_clamped",
+            window_start = unrecomputable_window.window_start
+        );
+    }
+    match ew_store::insert(pool, &unrecomputable_window).await {
+        Ok(()) => {
+            info!(
+                event = "window_stored_unrecomputable",
+                window_start = ctx.prev_window,
+                reason = "boundary_json_too_large"
+            );
+            let _ =
+                config_store::set(pool, "last_window_start", &ctx.prev_window.to_string()).await;
+        }
+        Err(e) => error!(event = "window_store_error", error = %e),
+    }
 }
 
 async fn run_boundary_tx(
@@ -145,26 +154,36 @@ async fn run_boundary_tx(
                 Err(e) => {
                     let _ = tx.rollback().await;
                     error!(event = "ew_exists_check_failed", window_start = ctx.prev_window, error = %e);
-                    // skip window write; fall through to inverter snapshots + persist_reading
                 }
                 Ok(ew_exists) => {
-                    if snapshot_inserted {
-                        // Normal path: new snapshot + new window
-                        insert_window_in_tx(tx, pool, ctx, false).await;
-                    } else if ew_exists {
-                        // AlreadyExists + window present: duplicate boundary crossing (restart)
-                        let _ = tx.rollback().await;
-                        info!(
-                            event = "boundary_already_complete",
-                            window_start = ctx.prev_window
-                        );
-                    } else {
-                        // AlreadyExists + window absent: repair path
-                        insert_window_in_tx(tx, pool, ctx, true).await;
-                    }
+                    dispatch_window_branch(tx, pool, ctx, snapshot_inserted, ew_exists).await;
                 }
             }
         }
+    }
+}
+
+/// Route to the correct window-write path based on snapshot and window existence flags.
+async fn dispatch_window_branch(
+    tx: Transaction<'_, Sqlite>,
+    pool: &SqlitePool,
+    ctx: &BoundaryCtx<'_>,
+    snapshot_inserted: bool,
+    ew_exists: bool,
+) {
+    if snapshot_inserted {
+        // Normal path: new snapshot + new window
+        insert_window_in_tx(tx, pool, ctx, false).await;
+    } else if ew_exists {
+        // AlreadyExists + window present: duplicate boundary crossing (restart)
+        let _ = tx.rollback().await;
+        info!(
+            event = "boundary_already_complete",
+            window_start = ctx.prev_window
+        );
+    } else {
+        // AlreadyExists + window absent: repair path
+        insert_window_in_tx(tx, pool, ctx, true).await;
     }
 }
 
@@ -212,25 +231,33 @@ async fn insert_window_in_tx(
                 error!(event = "window_store_error", error = %e);
             }
         }
-        Ok(_) => {
-            if let Err(e) = tx.commit().await {
-                error!(event = "boundary_tx_commit_failed", error = %e);
-            } else if is_repair {
-                info!(event = "window_repaired", window_start = ctx.prev_window);
-                let _ = config_store::set(pool, "last_window_start", &ctx.prev_window.to_string())
-                    .await;
-            } else {
-                info!(
-                    event = "window_stored",
-                    window_start = ctx.prev_window,
-                    wh_produced = window.wh_produced,
-                    wh_consumed = window.wh_consumed,
-                    wh_grid_export = window.wh_grid_export,
-                    wh_grid_import = window.wh_grid_import,
-                );
-                let _ = config_store::set(pool, "last_window_start", &ctx.prev_window.to_string())
-                    .await;
-            }
-        }
+        Ok(_) => commit_and_finalize(tx, pool, ctx, &window, is_repair).await,
+    }
+}
+
+/// Commit the open transaction and update config_store after a successful window insert.
+/// `is_repair` selects the success event name.
+async fn commit_and_finalize(
+    tx: Transaction<'_, Sqlite>,
+    pool: &SqlitePool,
+    ctx: &BoundaryCtx<'_>,
+    window: &EnergyWindow,
+    is_repair: bool,
+) {
+    if let Err(e) = tx.commit().await {
+        error!(event = "boundary_tx_commit_failed", error = %e);
+    } else if is_repair {
+        info!(event = "window_repaired", window_start = ctx.prev_window);
+        let _ = config_store::set(pool, "last_window_start", &ctx.prev_window.to_string()).await;
+    } else {
+        info!(
+            event = "window_stored",
+            window_start = ctx.prev_window,
+            wh_produced = window.wh_produced,
+            wh_consumed = window.wh_consumed,
+            wh_grid_export = window.wh_grid_export,
+            wh_grid_import = window.wh_grid_import,
+        );
+        let _ = config_store::set(pool, "last_window_start", &ctx.prev_window.to_string()).await;
     }
 }

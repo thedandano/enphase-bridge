@@ -72,82 +72,90 @@ impl Scheduler {
 
         loop {
             ticker.tick().await;
-
-            let readings = match self.gateway.get_meter_readings().await {
-                Ok(r) => r,
-                Err(e) => {
-                    error!(event = "poll_error", error = %e);
-                    continue;
-                }
-            };
-
-            let now = crate::util::unix_now();
-            let curr = CumulativeReading {
-                timestamp: now,
-                production_wh: readings.production_cum_wh,
-                grid_import_cum_wh: readings.grid_import_cum_wh,
-                grid_export_cum_wh: readings.grid_export_cum_wh,
-            };
-
-            // Per-tick: insert power sample
-            boundary::handle_power_sample(
-                &self.pool,
-                now,
-                readings.production_w_now,
-                readings.consumption_w_now,
-                readings.grid_w_now,
+            self.poll_tick(
+                &mut last_reading,
+                &mut accumulator,
+                &mut last_retention_check,
             )
             .await;
-            accumulator.push((
-                readings.production_w_now,
-                readings.consumption_w_now,
-                readings.grid_w_now,
-            ));
-
-            if let Some(prev) = &last_reading {
-                let prev_window = window_boundary(prev.timestamp);
-                let curr_window = window_boundary(now);
-
-                if curr_window > prev_window {
-                    window_close::handle_window_close(
-                        &self.pool,
-                        &self.gateway,
-                        &window_close::WindowCloseArgs {
-                            prev_window,
-                            prev,
-                            curr: &curr,
-                            now,
-                            readings: &readings,
-                            accumulator: &accumulator,
-                        },
-                    )
-                    .await;
-                    accumulator.clear();
-                    last_reading = Some(curr);
-                }
-                // Mid-window tick: anchor stays frozen at the previous boundary reading.
-            } else {
-                last_reading = Some(curr);
-            }
-
-            if now - last_retention_check >= DAY_SECS {
-                let cutoff = now - (self.retention_days as i64 * DAY_SECS);
-                match ps_store::delete_before(&self.pool, cutoff).await {
-                    Ok(deleted) => info!(event = "power_sample_retention", deleted, cutoff),
-                    Err(e) => error!(event = "power_sample_retention_error", error = %e),
-                }
-                let phase_cutoff = now - (self.phase_retention_days as i64 * DAY_SECS);
-                match phase_store::delete_before(&self.pool, phase_cutoff).await {
-                    Ok(deleted) => info!(
-                        event = "phase_reading_retention",
-                        deleted,
-                        cutoff = phase_cutoff
-                    ),
-                    Err(e) => error!(event = "phase_reading_retention_error", error = %e),
-                }
-                last_retention_check = now;
-            }
         }
+    }
+
+    /// Execute one poll tick: fetch readings, persist power sample, detect window boundary,
+    /// and run data-retention pruning when a day has elapsed.
+    async fn poll_tick(
+        &mut self,
+        last_reading: &mut Option<CumulativeReading>,
+        accumulator: &mut Vec<(f64, f64, f64)>,
+        last_retention_check: &mut i64,
+    ) {
+        let readings = match self.gateway.get_meter_readings().await {
+            Ok(r) => r,
+            Err(e) => {
+                error!(event = "poll_error", error = %e);
+                return;
+            }
+        };
+
+        let now = crate::util::unix_now();
+        let curr = CumulativeReading {
+            timestamp: now,
+            production_wh: readings.production_cum_wh,
+            grid_import_cum_wh: readings.grid_import_cum_wh,
+            grid_export_cum_wh: readings.grid_export_cum_wh,
+        };
+
+        // Per-tick: insert power sample
+        boundary::handle_power_sample(
+            &self.pool,
+            now,
+            readings.production_w_now,
+            readings.consumption_w_now,
+            readings.grid_w_now,
+        )
+        .await;
+        accumulator.push((
+            readings.production_w_now,
+            readings.consumption_w_now,
+            readings.grid_w_now,
+        ));
+
+        if let Some(prev) = last_reading.take() {
+            let prev_window = window_boundary(prev.timestamp);
+            let curr_window = window_boundary(now);
+
+            if curr_window > prev_window {
+                window_close::handle_window_close(
+                    &self.pool,
+                    &self.gateway,
+                    &window_close::WindowCloseArgs {
+                        prev_window,
+                        prev: &prev,
+                        curr: &curr,
+                        now,
+                        readings: &readings,
+                        accumulator: accumulator.as_slice(),
+                    },
+                )
+                .await;
+                accumulator.clear();
+                *last_reading = Some(curr);
+            } else {
+                // Mid-window tick: put prev back; anchor stays frozen at the previous boundary reading.
+                *last_reading = Some(prev);
+            }
+        } else {
+            *last_reading = Some(curr);
+        }
+
+        run_retention_if_due(
+            &self.pool,
+            now,
+            last_retention_check,
+            self.retention_days,
+            self.phase_retention_days,
+        )
+        .await;
     }
 
     async fn load_persisted_reading(&self) -> Option<CumulativeReading> {
@@ -166,6 +174,35 @@ impl Scheduler {
             grid_export_cum_wh: grid_export.parse().ok()?,
         })
     }
+}
+
+/// Prune power-sample and phase-reading rows older than the configured retention windows,
+/// but only once per day to avoid repeated I/O.
+async fn run_retention_if_due(
+    pool: &SqlitePool,
+    now: i64,
+    last_retention_check: &mut i64,
+    retention_days: u32,
+    phase_retention_days: u32,
+) {
+    if now - *last_retention_check < DAY_SECS {
+        return;
+    }
+    let cutoff = now - (retention_days as i64 * DAY_SECS);
+    match ps_store::delete_before(pool, cutoff).await {
+        Ok(deleted) => info!(event = "power_sample_retention", deleted, cutoff),
+        Err(e) => error!(event = "power_sample_retention_error", error = %e),
+    }
+    let phase_cutoff = now - (phase_retention_days as i64 * DAY_SECS);
+    match phase_store::delete_before(pool, phase_cutoff).await {
+        Ok(deleted) => info!(
+            event = "phase_reading_retention",
+            deleted,
+            cutoff = phase_cutoff
+        ),
+        Err(e) => error!(event = "phase_reading_retention_error", error = %e),
+    }
+    *last_retention_check = now;
 }
 
 // Recompute stale energy windows using stored boundary snapshot pairs.
