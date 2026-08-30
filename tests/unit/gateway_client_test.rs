@@ -258,3 +258,36 @@ fn test_missing_meter_is_an_error_not_a_silent_zero() {
         "a missing production meter must be an error, not production_w_now = 0.0"
     );
 }
+
+/// The dead EID 1023410688 reports three all-zero channels. Recording them wrote
+/// junk phase_reading rows forever, so only the two modelled meters contribute.
+#[test]
+fn test_dead_net_meter_contributes_no_channel_readings() {
+    const JSON: &str = r#"[
+      {"eid": 704643328, "activePower": 1000.0, "actEnergyDlvd": 1000.0, "actEnergyRcvd": 0.0, "channels": [
+        {"eid": 1778385169, "activePower": 1000.0, "actEnergyDlvd": 1000.0, "actEnergyRcvd": 0.0}
+      ]},
+      {"eid": 704643584, "activePower": 200.0, "actEnergyDlvd": 500.0, "actEnergyRcvd": 0.0, "channels": [
+        {"eid": 1778385171, "activePower": 200.0, "actEnergyDlvd": 500.0, "actEnergyRcvd": 0.0}
+      ]},
+      {"eid": 1023410688, "activePower": 0.0, "actEnergyDlvd": 0.0, "actEnergyRcvd": 0.0, "channels": [
+        {"eid": 1778385180, "activePower": 0.0, "actEnergyDlvd": 0.0, "actEnergyRcvd": 0.0},
+        {"eid": 1778385181, "activePower": 0.0, "actEnergyDlvd": 0.0, "actEnergyRcvd": 0.0},
+        {"eid": 1778385182, "activePower": 0.0, "actEnergyDlvd": 0.0, "actEnergyRcvd": 0.0}
+      ]}
+    ]"#;
+    let readings = extract_cumulatives_from_json(JSON).expect("should parse successfully");
+
+    assert_eq!(
+        readings.channel_readings.len(),
+        2,
+        "only the production and net-consumption meters contribute channels"
+    );
+    assert!(
+        !readings
+            .channel_readings
+            .iter()
+            .any(|c| c.meter_eid == 1023410688),
+        "the dead meter must contribute no phase readings"
+    );
+}

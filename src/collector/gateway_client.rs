@@ -327,8 +327,15 @@ pub fn extract_cumulatives_from_json(raw: &str) -> Result<MeterReadings, AppErro
             AppError::Gateway(GatewayError::MissingMeter("net-consumption".to_string()))
         })?;
 
+    // Only the two meters this service actually models contribute phase readings.
+    // The gateway also reports EID 1023410688, which is present but unpopulated on
+    // this hardware — every field zero, including its three channels — and was
+    // writing all-zero rows into phase_reading indefinitely.
     let mut channel_readings = Vec::new();
-    for m in &meters {
+    for m in meters
+        .iter()
+        .filter(|m| m.eid == EID_PRODUCTION || m.eid == EID_NET_CONSUMPTION)
+    {
         match &m.channels {
             None => {
                 warn!(event = "channels_absent", meter_eid = m.eid);
