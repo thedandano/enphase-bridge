@@ -37,7 +37,21 @@ async fn test_gateway_auth_and_poll() {
         "production_w_now should be non-negative"
     );
     assert!(
-        readings.consumption_w_now >= 0.0,
-        "consumption_w_now should be non-negative"
+        readings.consumption_w_now > 0.0,
+        "consumption_w_now must be a positive house load — a negative value means the \
+         net-consumption meter is being read as load again; got {}",
+        readings.consumption_w_now
+    );
+    assert!(
+        (readings.consumption_w_now - readings.production_w_now - readings.grid_w_now).abs() < 1e-6,
+        "power balance must close: {} - {} - {} != 0",
+        readings.consumption_w_now,
+        readings.production_w_now,
+        readings.grid_w_now
+    );
+    assert!(
+        readings.grid_w_now != 0.0,
+        "grid_w_now must reflect real grid flow — exactly 0.0 is the signature of the \
+         dead EID 1023410688 being read again"
     );
 }

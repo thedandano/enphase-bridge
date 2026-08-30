@@ -83,6 +83,45 @@ Returns the single most recently completed 15-minute window (no pagination wrapp
 
 ---
 
+## Power samples
+
+### `GET /api/power/samples`
+
+Instantaneous power readings, one row per poll tick (not per 15-minute window).
+
+**Query params** — `start`, `end` (Unix seconds, required), `limit` (1–5000, default 500), `offset`
+
+**Response 200**
+
+```json
+{
+  "samples": [
+    { "sampled_at": 1756500000, "production_w": 2850.349, "consumption_w": 3393.799, "grid_w": 543.45 }
+  ],
+  "total": 1,
+  "limit": 500,
+  "offset": 0
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `production_w` | Solar production, watts. Always ≥ 0. |
+| `grid_w` | **Signed** grid flow, watts: **positive = importing** from the grid, **negative = exporting** to it. Read directly from the net-consumption meter's `activePower` (EID 704643584), which is the instantaneous analogue of `actEnergyDlvd − actEnergyRcvd`. |
+| `consumption_w` | House load, watts — **derived** as `production_w + grid_w`. The gateway exposes a net-consumption CT (grid flow) and no load CT, so load is never measured directly. Mirrors how `wh_consumed` is derived for energy windows. |
+
+`consumption_w` is not clamped at zero. A negative value means a genuine sensor
+fault (reversed CT, or a production meter reporting zero mid-export) and is
+surfaced rather than hidden — `production_w + grid_w - consumption_w` is
+otherwise exactly zero by construction, so a consumer wanting an independent
+health signal should check the sign of `consumption_w`, not that residual.
+
+> Meter EID `1023410688` is present on this hardware but unpopulated (all fields
+> zero) and is deliberately **not** used. Preferring it once pinned `grid_w` to
+> `0.0` on every sample.
+
+---
+
 ## Inverter snapshots
 
 ### `GET /api/inverters/snapshots`
