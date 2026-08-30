@@ -296,7 +296,7 @@ h1 {
           <span class="node-file">src/collector/gateway_client.rs</span>
         </div>
         <div class="node-body">
-          Manages session cookie via <code>check_jwt()</code>. At scheduler startup calls <code>probe_meters()</code> to confirm the <code>net-consumption</code> meter is present and enabled — halts with <code>GatewayError::MissingMeter</code> if absent (no silent fallback). Each poll calls <code>get_meter_readings()</code>; auto-retries with a fresh <code>check_jwt()</code> on any 401. On window boundary calls <code>get_inverter_snapshots()</code>. Deserializes JSON → <code>MeterReadings</code> / <code>Vec&lt;InverterReport&gt;</code>.
+          Manages session cookie via <code>check_jwt()</code>. At scheduler startup calls <code>probe_meters()</code> to confirm both the <code>production</code> and <code>net-consumption</code> meters are present and enabled — halts with <code>GatewayError::MissingMeter</code> if either is absent (no silent fallback). Each poll calls <code>get_meter_readings()</code>; auto-retries with a fresh <code>check_jwt()</code> on any 401. On window boundary calls <code>get_inverter_snapshots()</code>. Deserializes JSON → <code>MeterReadings</code> / <code>Vec&lt;InverterReport&gt;</code>.
         </div>
       </div>
 

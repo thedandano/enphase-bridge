@@ -38,6 +38,19 @@ async fn test_gateway_auth_and_poll() {
     );
     assert!(
         readings.consumption_w_now >= 0.0,
-        "consumption_w_now should be non-negative"
+        "consumption_w_now must be a non-negative house load — a negative value means the \
+         net-consumption meter is being read as load again; got {}",
+        readings.consumption_w_now
     );
+    assert!(
+        (readings.consumption_w_now - readings.production_w_now - readings.grid_w_now).abs() < 1e-6,
+        "power balance must close: {} - {} - {} != 0",
+        readings.consumption_w_now,
+        readings.production_w_now,
+        readings.grid_w_now
+    );
+    // Deliberately no `grid_w_now != 0.0` assertion: a genuine zero-crossing is a valid
+    // instantaneous reading, so that would flake against live hardware. The dead-EID
+    // regression is pinned deterministically by
+    // gateway_client_test::test_dead_net_meter_does_not_zero_grid_w instead.
 }
