@@ -141,8 +141,9 @@ impl GatewayClient {
         Ok(())
     }
 
-    /// Probe GET /ivp/meters to validate that the net-consumption meter is present and enabled.
-    /// Called once at scheduler startup after check_jwt(); halts if the required meter is absent.
+    /// Probe GET /ivp/meters to validate that the production and net-consumption meters are
+    /// present and enabled. Called once at scheduler startup after check_jwt(); halts if either
+    /// required meter is absent, rather than letting a missing meter silently read as zero watts.
     pub async fn probe_meters(&mut self) -> Result<(), AppError> {
         let url = format!("{}/ivp/meters", self.base_url);
         debug!(event = "probe_meters_request", url = %url);
@@ -173,42 +174,17 @@ impl GatewayClient {
             AppError::Gateway(GatewayError::MalformedResponse(e.to_string()))
         })?;
 
-        let net_cons = meters
-            .iter()
-            .find(|m| m.measurement_type == "net-consumption");
+        let production = require_enabled_meter(&meters, "production")?;
+        let net_cons = require_enabled_meter(&meters, "net-consumption")?;
 
-        match net_cons {
-            None => {
-                let seen: Vec<&str> = meters.iter().map(|m| m.measurement_type.as_str()).collect();
-                error!(
-                    event = "required_meter_absent",
-                    meter_type = "net-consumption",
-                    seen_types = ?seen
-                );
-                Err(AppError::Gateway(GatewayError::MissingMeter(
-                    "net-consumption".to_string(),
-                )))
-            }
-            Some(m) if m.state != "enabled" => {
-                error!(
-                    event = "meter_disabled",
-                    meter_type = "net-consumption",
-                    state = %m.state
-                );
-                Err(AppError::Gateway(GatewayError::MissingMeter(format!(
-                    "net-consumption meter is {} (not enabled)",
-                    m.state
-                ))))
-            }
-            Some(m) => {
-                info!(
-                    event = "meters_discovered",
-                    net_consumption_eid = m.eid,
-                    net_consumption_state = %m.state
-                );
-                Ok(())
-            }
-        }
+        info!(
+            event = "meters_discovered",
+            production_eid = production.eid,
+            production_state = %production.state,
+            net_consumption_eid = net_cons.eid,
+            net_consumption_state = %net_cons.state
+        );
+        Ok(())
     }
 
     fn cookie_header(&self) -> Option<String> {
@@ -295,6 +271,43 @@ impl GatewayClient {
     }
 }
 
+/// Require that a meter of `measurement_type` is present and enabled, erroring if not.
+/// A missing meter must fail loudly at startup: silently defaulting it to zero watts is
+/// how the grid counters once read 0.0 for months without anyone noticing.
+fn require_enabled_meter<'a>(
+    meters: &'a [MeterInfo],
+    measurement_type: &str,
+) -> Result<&'a MeterInfo, AppError> {
+    match meters
+        .iter()
+        .find(|m| m.measurement_type == measurement_type)
+    {
+        None => {
+            let seen: Vec<&str> = meters.iter().map(|m| m.measurement_type.as_str()).collect();
+            error!(
+                event = "required_meter_absent",
+                meter_type = measurement_type,
+                seen_types = ?seen
+            );
+            Err(AppError::Gateway(GatewayError::MissingMeter(
+                measurement_type.to_string(),
+            )))
+        }
+        Some(m) if m.state != "enabled" => {
+            error!(
+                event = "meter_disabled",
+                meter_type = measurement_type,
+                state = %m.state
+            );
+            Err(AppError::Gateway(GatewayError::MissingMeter(format!(
+                "{} meter is {} (not enabled)",
+                measurement_type, m.state
+            ))))
+        }
+        Some(m) => Ok(m),
+    }
+}
+
 /// Parse a raw `/ivp/meters/readings` JSON response body into `MeterReadings`.
 /// This is the pure extraction logic decoupled from the HTTP transport.
 pub fn extract_cumulatives_from_json(raw: &str) -> Result<MeterReadings, AppError> {
@@ -303,7 +316,10 @@ pub fn extract_cumulatives_from_json(raw: &str) -> Result<MeterReadings, AppErro
         AppError::Gateway(GatewayError::MalformedResponse(e.to_string()))
     })?;
 
-    let prod = meters.iter().find(|m| m.eid == EID_PRODUCTION);
+    let prod = meters
+        .iter()
+        .find(|m| m.eid == EID_PRODUCTION)
+        .ok_or_else(|| AppError::Gateway(GatewayError::MissingMeter("production".to_string())))?;
     let cons = meters
         .iter()
         .find(|m| m.eid == EID_NET_CONSUMPTION)
@@ -339,7 +355,7 @@ pub fn extract_cumulatives_from_json(raw: &str) -> Result<MeterReadings, AppErro
     // slope = 0.993 against the counter-derived rate, over a range including
     // 79 net-export windows).
     let grid_w = cons.active_power;
-    let production_w = prod.map(|m| m.active_power).unwrap_or(0.0);
+    let production_w = prod.active_power;
     // No load CT exists on this gateway, so house load must be derived. Mirrors
     // window_aggregator's wh_consumed = produced + imported - exported.
     let consumption_w = production_w + grid_w;
@@ -358,7 +374,7 @@ pub fn extract_cumulatives_from_json(raw: &str) -> Result<MeterReadings, AppErro
         production_w_now: production_w,
         consumption_w_now: consumption_w,
         grid_w_now: grid_w,
-        production_cum_wh: prod.map(|m| m.act_energy_dlvd).unwrap_or(0.0),
+        production_cum_wh: prod.act_energy_dlvd,
         grid_import_cum_wh: cons.act_energy_dlvd,
         grid_export_cum_wh: cons.act_energy_rcvd,
         raw_json: raw.to_string(),
