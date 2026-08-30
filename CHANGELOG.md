@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0](https://github.com/thedandano/enphase-bridge/compare/enphase-bridge-v0.2.2...enphase-bridge-v0.3.0) (2026-08-30)
+
+
+### Features
+
+* implement full observability backlog — boundary snapshots, energy balance, inverter timestamps, power samples, phase readings ([26aaa49](https://github.com/thedandano/enphase-bridge/commit/26aaa49180a3edc80d864ee1127325fb438661e7))
+
+
+### Bug Fixes
+
+* derive house load from signed grid flow (meter sign/mapping) ([e17a930](https://github.com/thedandano/enphase-bridge/commit/e17a93053d0f0592e2125b8a520869d04e4cc756))
+* derive house load from signed grid flow, not the mislabelled net meter ([275059a](https://github.com/thedandano/enphase-bridge/commit/275059a3f7475cabd6732757921431f1a0eed706))
+* drop the flaky live grid assertion; correct the architecture doc ([3c08792](https://github.com/thedandano/enphase-bridge/commit/3c087926e1abe85571b0129d0d157e6bd5c753f9))
+* require the production meter instead of defaulting it to zero watts ([4191456](https://github.com/thedandano/enphase-bridge/commit/41914569d877b6188892ad9ed54495a288ee28d8))
+* stop the dead meter writing all-zero phase readings ([1ba2d53](https://github.com/thedandano/enphase-bridge/commit/1ba2d53e303e7cafeb0aa37ecbe1c184a968160f))
+* stub all crate targets in Dockerfile dep-cache layer ([426d622](https://github.com/thedandano/enphase-bridge/commit/426d622d3e8897150cd840d5b176ae18dbaa698b))
+
 ## [0.2.2](https://github.com/thedandano/enphase-bridge/compare/enphase-bridge-v0.2.1...enphase-bridge-v0.2.2) (2026-04-30)
 
 
