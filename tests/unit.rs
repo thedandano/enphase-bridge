@@ -1,5 +1,8 @@
 mod common;
 
+#[path = "unit/constants_test.rs"]
+mod constants_test;
+
 #[path = "unit/token_manager_test.rs"]
 mod token_manager_test;
 

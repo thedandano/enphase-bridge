@@ -2,6 +2,7 @@ mod api;
 mod auth;
 mod collector;
 mod config;
+mod constants;
 mod error;
 mod inverter;
 mod storage;
