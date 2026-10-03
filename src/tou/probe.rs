@@ -3,9 +3,9 @@ use sqlx::SqlitePool;
 
 pub(crate) const STALE_THRESHOLD_SECS: i64 = 90 * 24 * 3600;
 
-pub async fn probe_tou_schedule(pool: &SqlitePool, rate_label: &str) {
+pub async fn probe_tou_schedule(pool: &SqlitePool, rate_label: &str, utility_eia_id: u32) {
     let now = crate::util::unix_now();
-    match tou_schedule::query_latest(pool, rate_label).await {
+    match tou_schedule::query_latest(pool, rate_label, utility_eia_id).await {
         Ok(Some(schedule)) => {
             let age_days = (now - schedule.fetched_at) / (24 * 3600);
             if now - schedule.fetched_at > STALE_THRESHOLD_SECS {
@@ -50,7 +50,7 @@ mod tests {
     #[traced_test]
     async fn test_probe_emits_stale_when_no_schedule() {
         let pool = setup_pool().await;
-        probe_tou_schedule(&pool, "TOU-DR-2").await;
+        probe_tou_schedule(&pool, "TOU-DR-2", 1).await;
         assert!(logs_contain("tou_schedule_stale"));
     }
 
@@ -60,15 +60,15 @@ mod tests {
         let pool = setup_pool().await;
         let fresh_fetched_at = crate::util::unix_now();
         sqlx::query(
-            "INSERT INTO tou_rate_schedule (fetched_at, effective_date, utility_name, rate_label, rate_json)
-             VALUES (?, NULL, 'Test', 'TOU-DR-2', '{}')",
+            "INSERT INTO tou_rate_schedule (fetched_at, effective_date, utility_name, rate_label, rate_json, utility_eia_id)
+             VALUES (?, NULL, 'Test', 'TOU-DR-2', '{}', 1)",
         )
         .bind(fresh_fetched_at)
         .execute(&pool)
         .await
         .unwrap();
 
-        probe_tou_schedule(&pool, "TOU-DR-2").await;
+        probe_tou_schedule(&pool, "TOU-DR-2", 1).await;
         assert!(logs_contain("tou_schedule_ok"));
     }
 
@@ -78,15 +78,15 @@ mod tests {
         let pool = setup_pool().await;
         let old_fetched_at = crate::util::unix_now() - STALE_THRESHOLD_SECS - 1;
         sqlx::query(
-            "INSERT INTO tou_rate_schedule (fetched_at, effective_date, utility_name, rate_label, rate_json)
-             VALUES (?, NULL, 'Test', 'TOU-DR-2', '{}')",
+            "INSERT INTO tou_rate_schedule (fetched_at, effective_date, utility_name, rate_label, rate_json, utility_eia_id)
+             VALUES (?, NULL, 'Test', 'TOU-DR-2', '{}', 1)",
         )
         .bind(old_fetched_at)
         .execute(&pool)
         .await
         .unwrap();
 
-        probe_tou_schedule(&pool, "TOU-DR-2").await;
+        probe_tou_schedule(&pool, "TOU-DR-2", 1).await;
         assert!(logs_contain("tou_schedule_stale"));
     }
 }

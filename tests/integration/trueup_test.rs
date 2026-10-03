@@ -31,6 +31,7 @@ fn make_state(pool: SqlitePool, rate_label: &str) -> AppState {
         token_expires_at: 9_999_999_999,
         started_at: 0,
         arrays: Default::default(),
+        tou_timezone: chrono_tz::America::Los_Angeles,
         tou_api_key: String::new(),
         tou_utility_eia_id: 0,
         tou_rate_label: rate_label.to_string(),
@@ -47,8 +48,8 @@ async fn json_body(resp: axum::http::Response<Body>) -> serde_json::Value {
 
 async fn seed_schedule(pool: &SqlitePool, rate_label: &str) -> i64 {
     let result = sqlx::query(
-        "INSERT INTO tou_rate_schedule (fetched_at, effective_date, utility_name, rate_label, rate_json)
-         VALUES (?, NULL, 'Test Utility', ?, ?)",
+        "INSERT INTO tou_rate_schedule (fetched_at, effective_date, utility_name, rate_label, rate_json, utility_eia_id, source_id, effective_start)
+         VALUES (?, NULL, 'Test Utility', ?, ?, 0, 'test-revision', 0)",
     )
     .bind(1_000_000_i64)
     .bind(rate_label)
@@ -64,8 +65,8 @@ async fn seed_coastal_schedule(pool: &SqlitePool) -> i64 {
         std::fs::read_to_string("tests/fixtures/sdge_tou_dr_coastal_baseline_item.json")
             .expect("coastal baseline fixture must exist");
     let result = sqlx::query(
-        "INSERT INTO tou_rate_schedule (fetched_at, effective_date, utility_name, rate_label, rate_json)
-         VALUES (?, NULL, 'San Diego Gas & Electric', 'TOU-DR Coastal Baseline Region', ?)",
+        "INSERT INTO tou_rate_schedule (fetched_at, effective_date, utility_name, rate_label, rate_json, utility_eia_id, source_id, effective_start)
+         VALUES (?, NULL, 'San Diego Gas & Electric', 'TOU-DR Coastal Baseline Region', ?, 0, 'coastal-revision', 0)",
     )
     .bind(1_000_000_i64)
     .bind(rate_json)
@@ -103,7 +104,7 @@ async fn test_estimate_422_when_no_schedule() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
     let j = json_body(resp).await;
-    assert_eq!(j["error"], "no_tou_schedule");
+    assert_eq!(j["error"], "tou_history_unavailable");
 }
 
 #[tokio::test]

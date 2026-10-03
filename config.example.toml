@@ -14,6 +14,7 @@ port = 8080
 db_path = "./energy.db"
 
 [tou]
+timezone = "America/Los_Angeles" # Set your utility’s IANA timezone
 openei_api_key = "your_openei_key_here"
 
 # Your utility's EIA ID from the OpenEI URDB (https://openei.org/wiki/Utility_Rate_Database)

@@ -3,8 +3,8 @@ use crate::api::server::AppState;
 use crate::error::{ApiError, AppError, TouError};
 use crate::storage::energy_window::FormulaFilter;
 use crate::storage::models::TrueUpEstimate;
-use crate::storage::{energy_window, tou_schedule, true_up};
-use crate::trueup::calculator;
+use crate::storage::{energy_window, true_up};
+use crate::tou::history::{History, ScheduleMeta};
 use axum::{
     Json,
     extract::{Query, State},
@@ -25,6 +25,7 @@ pub struct EstimateResponse {
     net_cost_usd: f64,
     breakdown: Breakdown,
     tou_schedule: ScheduleMeta,
+    tou_schedules: Vec<ScheduleMeta>,
     computed_at: i64,
     excluded_window_count: usize,
 }
@@ -42,13 +43,6 @@ struct PeriodDetail {
     export_kwh: f64,
     import_cost_usd: f64,
     export_credit_usd: f64,
-}
-
-#[derive(Serialize)]
-struct ScheduleMeta {
-    id: i64,
-    rate_label: String,
-    effective_date: Option<String>,
 }
 
 pub async fn get_estimate(
@@ -73,11 +67,13 @@ pub async fn get_estimate(
 
     // energy_window::query_range uses exclusive end (`window_start < ?`); add one day so the
     // user-supplied UTC midnight date is inclusive. Callers must pass `end` as a UTC instant.
-    let period_end = period_end + 86_400;
+    let period_end = period_end
+        .checked_add(86_400)
+        .ok_or_else(|| AppError::Api(ApiError::InvalidParam("end is out of range".into())))?;
 
-    let schedule = tou_schedule::query_latest(&state.pool, &state.tou_rate_label)
-        .await?
-        .ok_or(AppError::Tou(TouError::NoSchedule))?;
+    let history =
+        History::load(&state.pool, state.tou_utility_eia_id, &state.tou_rate_label).await?;
+    history.ensure_coverage(period_start, period_end)?;
 
     let windows = energy_window::query_range(
         &state.pool,
@@ -114,7 +110,12 @@ pub async fn get_estimate(
         );
     }
 
-    let result = calculator::calculate(&schedule, &windows)?;
+    let (result, schedules) =
+        history.calculate(period_start, period_end, state.tou_timezone, &windows)?;
+    let schedule = schedules
+        .last()
+        .ok_or(AppError::Tou(TouError::NoSchedule))?;
+    let schedule_ids: Vec<i64> = schedules.iter().map(|schedule| schedule.id).collect();
 
     let computed_at = crate::util::unix_now();
 
@@ -132,7 +133,7 @@ pub async fn get_estimate(
         super_offpeak_export_kwh: result.super_off_peak.export_kwh,
         tou_schedule_id: schedule.id,
     };
-    if let Err(e) = true_up::insert(&state.pool, &estimate).await {
+    if let Err(e) = true_up::insert(&state.pool, &estimate, &schedule_ids).await {
         tracing::error!(
             event = "trueup_persist_failed",
             schedule_id = schedule.id,
@@ -166,11 +167,8 @@ pub async fn get_estimate(
                 export_credit_usd: round2(result.super_off_peak.export_credit_usd),
             },
         },
-        tou_schedule: ScheduleMeta {
-            id: schedule.id,
-            rate_label: schedule.rate_label,
-            effective_date: schedule.effective_date,
-        },
+        tou_schedule: schedule.clone(),
+        tou_schedules: schedules,
         computed_at,
         excluded_window_count: excluded_count,
     }))

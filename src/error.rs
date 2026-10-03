@@ -59,6 +59,8 @@ pub enum StorageError {
 
 #[derive(Debug, Error)]
 pub enum TouError {
+    #[error("TOU history unavailable: {0}")]
+    HistoryUnavailable(String),
     #[error("upstream unavailable: {0}")]
     UpstreamUnavailable(String),
     #[error("no rate schedule available")]
@@ -89,6 +91,14 @@ impl IntoResponse for AppError {
                 "insufficient_data",
                 m.clone(),
             ),
+            AppError::Tou(TouError::HistoryUnavailable(message)) => {
+                tracing::warn!(event="tou_history_unavailable", message=%message);
+                (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "tou_history_unavailable",
+                    message.clone(),
+                )
+            }
             AppError::Tou(TouError::NoSchedule) => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "no_tou_schedule",

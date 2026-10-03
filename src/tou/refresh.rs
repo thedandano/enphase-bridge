@@ -12,15 +12,17 @@ pub async fn run_tou_refresh_loop(
     utility_eia_id: u32,
     rate_label: String,
 ) {
-    if needs_refresh_now(&pool, &rate_label).await {
-        let _ = do_refresh(
+    if needs_refresh_now(&pool, &rate_label, utility_eia_id).await
+        && let Err(e) = do_refresh(
             &pool,
             &api_key,
             utility_eia_id,
             &rate_label,
             "https://api.openei.org",
         )
-        .await;
+        .await
+    {
+        tracing::error!(event="tou_refresh_error", error=%e);
     }
 
     loop {
@@ -39,12 +41,15 @@ pub async fn run_tou_refresh_loop(
     }
 }
 
-async fn needs_refresh_now(pool: &SqlitePool, rate_label: &str) -> bool {
+async fn needs_refresh_now(pool: &SqlitePool, rate_label: &str, utility_eia_id: u32) -> bool {
     let now = crate::util::unix_now();
-    match tou_schedule::query_latest(pool, rate_label).await {
+    match tou_schedule::query_latest(pool, rate_label, utility_eia_id).await {
         Ok(Some(s)) => (now - s.fetched_at) > REFRESH_TRIGGER_SECS,
         Ok(None) => true,
-        Err(_) => false,
+        Err(e) => {
+            tracing::warn!(event="tou_refresh_check_failed", error=%e, "attempting refresh after storage check failed");
+            true
+        }
     }
 }
 
@@ -61,17 +66,9 @@ async fn do_refresh(
         rate_label.to_string(),
         base_url.to_string(),
     );
-    let fetched = client.fetch().await?;
+    let fetched = client.fetch_history().await?;
     let fetched_at = crate::util::unix_now();
-    tou_schedule::insert(
-        pool,
-        fetched_at,
-        fetched.effective_date.as_deref(),
-        &fetched.utility_name,
-        &fetched.rate_label,
-        &fetched.rate_json,
-    )
-    .await?;
+    tou_schedule::insert_history(pool, utility_eia_id, fetched_at, &fetched).await?;
     tracing::info!(event = "tou_refresh_ok", rate_label = %rate_label);
     Ok(())
 }
@@ -96,6 +93,15 @@ mod tests {
             .await
             .expect("migrations");
         pool
+    }
+
+    #[tokio::test]
+    async fn other_utility_cannot_suppress_history_refresh() {
+        let pool = setup_migrated_pool().await;
+        sqlx::query("INSERT INTO tou_rate_schedule (fetched_at, utility_name, rate_label, rate_json, utility_eia_id) VALUES (?, 'Other Utility', 'SameName', '{}', 2)")
+            .bind(crate::util::unix_now()).execute(&pool).await.unwrap();
+        assert!(needs_refresh_now(&pool, "SameName", 1).await);
+        assert!(!needs_refresh_now(&pool, "SameName", 2).await);
     }
 
     #[tokio::test]

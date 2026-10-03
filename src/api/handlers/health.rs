@@ -26,7 +26,9 @@ pub async fn get_health(State(state): State<AppState>) -> Result<impl IntoRespon
     let now = crate::util::unix_now();
     let uptime_seconds = now - state.started_at;
 
-    let tou = tou_schedule::query_latest(&state.pool, &state.tou_rate_label).await?;
+    let tou =
+        tou_schedule::query_latest(&state.pool, &state.tou_rate_label, state.tou_utility_eia_id)
+            .await?;
     let (tou_schedule_id, tou_fetched_at, tou_stale) = match tou {
         None => (None, None, true),
         Some(s) => {

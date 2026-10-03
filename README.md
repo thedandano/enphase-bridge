@@ -42,20 +42,22 @@ Built for homeowners who want to own their energy data — run it on a Raspberry
 1. Log in to [Enlighten](https://enlighten.enphaseenergy.com)
 2. Open your system → **Settings** → **Local API Access** ([direct link](https://enlighten.enphaseenergy.com/app/settings/local-api-access))
 3. Click **Generate token** — this produces a 1-year gateway-scoped JWT (not a cloud API key)
-4. Copy the token — you'll paste it into `config.toml` → `gateway.token`
+4. Copy the token for `ENPHASE__GATEWAY__TOKEN` (native config: `gateway.token`)
 
 > **Note:** The Enlighten UI path changes occasionally. If you cannot find "Local API Access", search Enphase's community forums for the current path for your firmware version.
 
 #### OpenEI API key, utility ID & rate label
 
 1. Sign up for a free account at [OpenEI](https://apps.openei.org/services/api/signup/) and copy your API key
-2. Paste it into `config.toml` → `tou.openei_api_key`
+2. Use it for `ENPHASE__TOU__OPENEI_API_KEY` (native config: `tou.openei_api_key`)
 3. Find your utility's **EIA ID** in the [OpenEI URDB](https://openei.org/wiki/Utility_Rate_Database): search by utility name and state, then look for the EIA ID in the utility details (e.g. `16609` for SDG&E, `14701` for PG&E, `3970` for SCE)
-4. Paste it into `config.toml` → `tou.utility_eia_id`
+4. Use it for `ENPHASE__TOU__UTILITY_EIA_ID` (native config: `tou.utility_eia_id`)
 5. Find your **rate plan name**: on the same URDB page, select your residential TOU plan and copy the exact **Name** field (e.g. `"TOU-DR Coastal Baseline Region"` for SDG&E, `"E-TOU-C"` for PG&E)
-6. Paste it into `config.toml` → `tou.rate_label`
+6. Use it for `ENPHASE__TOU__RATE_LABEL` (native config: `tou.rate_label`)
 
 ### 1. Clone and configure
+
+For Docker deployments, continue to the [container examples](#2-run). This file-based setup is for native runs.
 
 ```bash
 git clone https://github.com/thedandano/enphase-bridge.git
@@ -64,7 +66,7 @@ cp config.example.toml config.toml
 echo "config.toml" >> .gitignore   # keep your credentials out of git
 ```
 
-Edit `config.toml`:
+For a native run, edit `config.toml`. Container deployments can supply all required settings through environment variables instead:
 
 ```toml
 [gateway]
@@ -82,6 +84,7 @@ port = 8080
 db_path = "./energy.db"
 
 [tou]
+timezone = "America/Los_Angeles" # Set your utility’s IANA timezone
 openei_api_key = "your_openei_key"
 utility_eia_id = 16609
 rate_label     = "TOU-DR Coastal Baseline Region"
@@ -93,7 +96,7 @@ rate_label     = "TOU-DR Coastal Baseline Region"
 
 **Docker Compose (recommended):**
 
-Place your `config.toml` in a deployment directory alongside a `docker-compose.yml`:
+Create a `docker-compose.yml`. Supply `GATEWAY_TOKEN` and `OPENEI_API_KEY` through your shell or a git-ignored `.env` file beside it. Set the gateway host, utility ID, exact rate-plan name, and timezone for your installation:
 
 ```yaml
 services:
@@ -103,11 +106,19 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
-      - ./config.toml:/app/config.toml:ro
       - enphase-data:/app/data
     environment:
       RUST_LOG: info
+      ENPHASE__GATEWAY__HOST: "192.168.1.100"
+      ENPHASE__GATEWAY__TOKEN: "${GATEWAY_TOKEN:?Set GATEWAY_TOKEN}"
+      ENPHASE__POLLING__INTERVAL_SECS: "60"
+      ENPHASE__API__HOST: "0.0.0.0"
+      ENPHASE__API__PORT: "8080"
       ENPHASE__STORAGE__DB_PATH: /app/data/energy.db
+      ENPHASE__TOU__OPENEI_API_KEY: "${OPENEI_API_KEY:?Set OPENEI_API_KEY}"
+      ENPHASE__TOU__UTILITY_EIA_ID: "16609"
+      ENPHASE__TOU__RATE_LABEL: "TOU-DR Coastal Baseline Region"
+      ENPHASE__TOU__TIMEZONE: "America/Los_Angeles"
 
 volumes:
   enphase-data:
@@ -131,7 +142,9 @@ docker run -d \
   -e ENPHASE__API__PORT="8080" \
   -e ENPHASE__STORAGE__DB_PATH="/data/energy.db" \
   -e ENPHASE__TOU__OPENEI_API_KEY="your_openei_key" \
+  -e ENPHASE__TOU__UTILITY_EIA_ID="16609" \
   -e ENPHASE__TOU__RATE_LABEL="TOU-DR Coastal Baseline Region" \
+  -e ENPHASE__TOU__TIMEZONE="America/Los_Angeles" \
   -v enphase-data:/data \
   ghcr.io/thedandano/enphase-bridge:latest
 ```
@@ -182,7 +195,8 @@ curl -H "Authorization: Bearer <your-key>" http://localhost:8080/api/energy/wind
 | `/api/inverters/snapshots` | GET | Per-inverter power snapshots |
 | `/api/inverters/snapshots/window/{window_start}` | GET | Snapshots for a specific 15-min window |
 | `/api/inverters/arrays` | GET | Inverters grouped into named arrays |
-| `/api/tou/refresh` | POST | Fetch/refresh TOU rate schedule from OpenEI |
+| `/api/tou/refresh` | POST | Fetch/refresh TOU revision history from OpenEI |
+| `/api/tou/intervals` | GET | Read resolved bracket intervals (Unix start/end; maximum 31 days) |
 | `/api/trueup/estimate` | GET | Net metering cost estimate — `?start`/`?end` RFC3339 |
 
 **Example — last 7 days of energy:**
@@ -235,6 +249,7 @@ The container uses `network_mode: host` so it can reach your IQ Gateway at its L
 | `storage.db_path` | **required** | Path to the SQLite database file (e.g. `./energy.db`) |
 | `tou.openei_api_key` | **required** | OpenEI API key for fetching TOU rate schedules |
 | `tou.utility_eia_id` | **required** | Your utility's EIA ID in the OpenEI URDB (e.g. `16609` for SDG&E) |
+| `tou.timezone` | **required** | Utility IANA timezone (e.g. `America/Los_Angeles`); use `ENPHASE__TOU__TIMEZONE` in containers |
 | `tou.rate_label` | **required** | Rate plan name as listed in OpenEI URDB (e.g. `"TOU-DR Coastal Baseline Region"`) |
 | `arrays.<name>` | _(none)_ | Named inverter array, e.g. `arrays.south_roof = ["122212345678", "122212345679"]` |
 
@@ -265,3 +280,29 @@ For commercial use, contact [dansedano.dev@gmail.com](mailto:dansedano.dev@gmail
 ### No Warranty
 
 This software is provided "as-is" without warranty of any kind, express or implied. The author assumes no liability for damages, data loss, or any other consequences resulting from the use of this software. You use enphase-bridge at your own risk.
+
+### TOU timezone upgrade
+
+In Docker Compose, add `ENPHASE__TOU__TIMEZONE: "America/Los_Angeles"` under the bridge service’s `environment` block. With `docker run`, add `-e ENPHASE__TOU__TIMEZONE=America/Los_Angeles`. Use your utility’s IANA timezone. Native TOML configuration uses `tou.timezone`; invalid or missing values stop startup. The bridge does not infer it from the plan or machine timezone.
+
+### Resolved time-of-use intervals
+
+`GET /api/tou/intervals?start=<epoch>&end=<epoch>` returns utility-local bracket timing as Unix seconds. Both parameters are required. The range must be positive and at most 31 days. Starts are inclusive and ends exclusive. Future transitions within a requested day are included.
+
+```json
+{
+  "timezone": "America/Los_Angeles",
+  "schedules": [{"id": 10, "source_id": "upstream-revision", "utility_eia_id": 16609, "rate_label": "Your plan", "effective_date": "2026-06-01", "effective_start": 1780297200, "effective_end": null}],
+  "intervals": [{"start": 1791010800, "end": 1791061200, "bracket": "super_off_peak", "schedule_id": 10}]
+}
+```
+
+Bracket names are `peak`, `off_peak`, and `super_off_peak`. Adjacent intervals merge only if both bracket and schedule identity match. Metadata end bounds include replacement by the next revision.
+
+`POST /api/tou/refresh` now fetches all returned versions of the configured utility and exact plan name, including all pages, and saves them atomically. Its existing response fields remain, with an added `revision_count`. The interval GET only reads saved history. Failed refreshes leave it intact. A missing plan is an explicit error; names are never inferred.
+
+Historical coverage comes from verified upstream revision identities and effective bounds, not fetch time. Legacy rows without provable metadata remain archived and cannot supply historical coverage. Revisions whose end precedes their start are archived with a warning and excluded. Explicit end dates are respected; gaps return HTTP 422 with `error: "tou_history_unavailable"`. Malformed schedules return HTTP 502 with `error: "upstream_parse_error"`.
+
+Cost estimates use that same historical classification for each energy window. Existing `tou_schedule` identifies the last contributing revision; additive `tou_schedules` lists all contributing revisions. New saved estimates record all those IDs. Existing totals and the estimate endpoint's inclusive end-date convention are preserved. Neither endpoint invents holiday rules or reconstructs switches between different account plans.
+
+Upgrading applies an additive migration that preserves existing schedules and estimates. Historical totals may change because past readings now use their effective revision rather than today's rates. Set `ENPHASE__TOU__TIMEZONE` in your Compose service or Docker arguments before recreating the container, then refresh history. Test the interval endpoint before enabling dashboard labels and transition lines. This change does not deploy the daemon.

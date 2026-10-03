@@ -54,6 +54,7 @@ async fn main() -> anyhow::Result<()> {
         token_expires_at: token_manager.expiry_timestamp(),
         started_at,
         arrays: config.arrays.clone(),
+        tou_timezone: config.tou.timezone,
         tou_api_key: config.tou.openei_api_key.clone(),
         tou_utility_eia_id: config.tou.utility_eia_id,
         tou_rate_label: config.tou.rate_label.clone(),
@@ -82,7 +83,7 @@ async fn main() -> anyhow::Result<()> {
         api_addr = format!("{}:{}", api_host, api_port),
     );
 
-    tou::probe::probe_tou_schedule(&pool, &config.tou.rate_label).await;
+    tou::probe::probe_tou_schedule(&pool, &config.tou.rate_label, config.tou.utility_eia_id).await;
 
     tokio::select! {
         result = api::server::serve(api_state, &api_host, api_port) => {

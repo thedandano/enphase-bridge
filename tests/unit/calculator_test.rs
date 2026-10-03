@@ -37,7 +37,8 @@ fn make_window(window_start: i64, import_wh: f64, export_wh: f64) -> EnergyWindo
 fn test_peak_import_classified_correctly() {
     let schedule = fixture_schedule();
     let windows = vec![make_window(PEAK_TS, 500.0, 0.0)];
-    let result = calculator::calculate(&schedule, &windows).unwrap();
+    let result =
+        calculator::calculate(&schedule, chrono_tz::America::Los_Angeles, &windows).unwrap();
 
     assert!((result.peak.import_kwh - 0.5).abs() < 1e-6);
     assert!((result.peak.import_cost_usd - 0.20).abs() < 1e-6);
@@ -49,7 +50,8 @@ fn test_peak_import_classified_correctly() {
 fn test_super_off_peak_export_classified_correctly() {
     let schedule = fixture_schedule();
     let windows = vec![make_window(SUPER_OP_TS, 0.0, 300.0)];
-    let result = calculator::calculate(&schedule, &windows).unwrap();
+    let result =
+        calculator::calculate(&schedule, chrono_tz::America::Los_Angeles, &windows).unwrap();
 
     assert!((result.super_off_peak.export_kwh - 0.3).abs() < 1e-6);
     assert!((result.super_off_peak.export_credit_usd - 0.045).abs() < 1e-6);
@@ -65,7 +67,8 @@ fn test_net_cost_across_all_periods() {
         make_window(SUPER_OP_TS, 0.0, 300.0), // super-op export 0.3 kWh → -$0.045
         make_window(OFF_PEAK_TS, 200.0, 500.0), // off-peak: import 0.2 → $0.05, export 0.5 → -$0.125
     ];
-    let result = calculator::calculate(&schedule, &windows).unwrap();
+    let result =
+        calculator::calculate(&schedule, chrono_tz::America::Los_Angeles, &windows).unwrap();
 
     // net = 0.20 + 0.05 - 0.045 - 0.125 = 0.08
     assert!((result.net_cost_usd - 0.08).abs() < 1e-6);
@@ -76,7 +79,7 @@ fn test_net_cost_across_all_periods() {
 #[test]
 fn test_empty_windows_returns_zero_cost() {
     let schedule = fixture_schedule();
-    let result = calculator::calculate(&schedule, &[]).unwrap();
+    let result = calculator::calculate(&schedule, chrono_tz::America::Los_Angeles, &[]).unwrap();
     assert_eq!(result.net_cost_usd, 0.0);
     assert_eq!(result.peak.import_kwh, 0.0);
 }
@@ -91,7 +94,7 @@ fn test_invalid_rate_json_returns_error() {
         rate_label: "x".into(),
         rate_json: "not json".into(),
     };
-    assert!(calculator::calculate(&bad_schedule, &[]).is_err());
+    assert!(calculator::calculate(&bad_schedule, chrono_tz::America::Los_Angeles, &[]).is_err());
 }
 
 fn make_schedule(rate_json: &str) -> TouRateSchedule {
@@ -135,7 +138,8 @@ fn test_2_period_no_super_off_peak() {
         make_window(SUPER_OP_TS, 100.0, 0.0), // hour 0 PST → period 0 (off-peak, lower rate)
         make_window(PEAK_TS, 200.0, 0.0),     // hour 16 PST → period 1 (peak, higher rate)
     ];
-    let result = calculator::calculate(&schedule, &windows).unwrap();
+    let result =
+        calculator::calculate(&schedule, chrono_tz::America::Los_Angeles, &windows).unwrap();
     assert_eq!(result.super_off_peak.import_kwh, 0.0);
     assert!(result.off_peak.import_kwh > 0.0);
     assert!(result.peak.import_kwh > 0.0);
@@ -152,7 +156,8 @@ fn test_4_period_all_buckets_represented() {
         make_window(OFF_PEAK_TS, 100.0, 0.0), // hour 12 → period 2 (off-peak)
         make_window(SUPER_OP_TS, 100.0, 0.0), // hour 0 → period 1 (super-off-peak)
     ];
-    let result = calculator::calculate(&schedule, &windows).unwrap();
+    let result =
+        calculator::calculate(&schedule, chrono_tz::America::Los_Angeles, &windows).unwrap();
     assert!(result.peak.import_kwh > 0.0);
     assert!(result.off_peak.import_kwh > 0.0);
     assert!(result.super_off_peak.import_kwh > 0.0);
@@ -170,8 +175,8 @@ fn test_tied_rates_deterministic() {
     let schedule = make_schedule(&rate_json);
     let windows = vec![make_window(PEAK_TS, 500.0, 0.0)];
 
-    let r1 = calculator::calculate(&schedule, &windows).unwrap();
-    let r2 = calculator::calculate(&schedule, &windows).unwrap();
+    let r1 = calculator::calculate(&schedule, chrono_tz::America::Los_Angeles, &windows).unwrap();
+    let r2 = calculator::calculate(&schedule, chrono_tz::America::Los_Angeles, &windows).unwrap();
     assert_eq!(r1.net_cost_usd, r2.net_cost_usd);
     assert_eq!(r1.peak.import_kwh, r2.peak.import_kwh);
     assert_eq!(r1.off_peak.import_kwh, r2.off_peak.import_kwh);
@@ -188,7 +193,12 @@ fn test_missing_rate_key_returns_parse_error() {
         r = months.join(","),
     );
     let schedule = make_schedule(&rate_json);
-    let err = calculator::calculate(&schedule, &[make_window(PEAK_TS, 100.0, 0.0)]).unwrap_err();
+    let err = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(PEAK_TS, 100.0, 0.0)],
+    )
+    .unwrap_err();
     assert!(matches!(err, AppError::Tou(TouError::ParseError(_))));
 }
 
@@ -206,7 +216,12 @@ fn test_schedule_fewer_than_12_months_returns_parse_error() {
     let schedule = make_schedule(&rate_json);
     // UTC 2024-09-02 00:00:00 = PST 2024-09-01 17:00 → month index 8 (September)
     let sep_ts: i64 = 1725235200;
-    let err = calculator::calculate(&schedule, &[make_window(sep_ts, 100.0, 0.0)]).unwrap_err();
+    let err = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(sep_ts, 100.0, 0.0)],
+    )
+    .unwrap_err();
     assert!(matches!(err, AppError::Tou(TouError::ParseError(_))));
 }
 
@@ -223,7 +238,8 @@ fn test_missing_sell_key_returns_ok_with_buy_rate() {
     let schedule = make_schedule(&rate_json);
     // Export at peak hour → credit should use buy rate $0.40
     let windows = vec![make_window(PEAK_TS, 0.0, 500.0)];
-    let result = calculator::calculate(&schedule, &windows).unwrap();
+    let result =
+        calculator::calculate(&schedule, chrono_tz::America::Los_Angeles, &windows).unwrap();
     assert!((result.peak.export_credit_usd - 0.5 * 0.40).abs() < 1e-6);
 }
 
@@ -241,13 +257,23 @@ fn test_sdge_tou_dr2_fixture_all_periods() {
         rate_json: fixture_json,
     };
     // PEAK_TS: UTC 2024-01-02 00:00:00 = PST 2024-01-01 16:00 (Monday, month 0) → period 2 (peak)
-    let peak = calculator::calculate(&schedule, &[make_window(PEAK_TS, 500.0, 0.0)]).unwrap();
+    let peak = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(PEAK_TS, 500.0, 0.0)],
+    )
+    .unwrap();
     assert!(peak.peak.import_kwh > 0.0, "Jan hour 16 should be Peak");
     assert_eq!(peak.off_peak.import_kwh, 0.0);
     assert_eq!(peak.super_off_peak.import_kwh, 0.0);
 
     // OFF_PEAK_TS: UTC 2024-01-02 20:00:00 = PST 2024-01-02 12:00 (Tuesday, month 0) → period 1
-    let op = calculator::calculate(&schedule, &[make_window(OFF_PEAK_TS, 200.0, 0.0)]).unwrap();
+    let op = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(OFF_PEAK_TS, 200.0, 0.0)],
+    )
+    .unwrap();
     assert_eq!(op.peak.import_kwh, 0.0);
     assert!(
         op.off_peak.import_kwh > 0.0,
@@ -256,7 +282,12 @@ fn test_sdge_tou_dr2_fixture_all_periods() {
     assert_eq!(op.super_off_peak.import_kwh, 0.0);
 
     // SUPER_OP_TS: UTC 2024-01-02 08:00:00 = PST 2024-01-02 00:00 (Tuesday, month 0) → period 0
-    let sop = calculator::calculate(&schedule, &[make_window(SUPER_OP_TS, 300.0, 0.0)]).unwrap();
+    let sop = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(SUPER_OP_TS, 300.0, 0.0)],
+    )
+    .unwrap();
     assert_eq!(sop.peak.import_kwh, 0.0);
     assert_eq!(sop.off_peak.import_kwh, 0.0);
     assert!(
@@ -285,7 +316,12 @@ fn test_coastal_6period_winter_classification() {
     let schedule = coastal_fixture_schedule();
 
     // Jan hour 16 → period 3 (rate 0.55, highest in winter group) → Peak
-    let peak = calculator::calculate(&schedule, &[make_window(PEAK_TS, 100.0, 0.0)]).unwrap();
+    let peak = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(PEAK_TS, 100.0, 0.0)],
+    )
+    .unwrap();
     assert!(
         peak.peak.import_kwh > 0.0,
         "Jan hour 16 (period 3) should be Peak"
@@ -294,7 +330,12 @@ fn test_coastal_6period_winter_classification() {
     assert_eq!(peak.super_off_peak.import_kwh, 0.0);
 
     // Jan hour 0 → period 5 (rate 0.35, lowest in winter group) → SuperOffPeak
-    let sop = calculator::calculate(&schedule, &[make_window(SUPER_OP_TS, 100.0, 0.0)]).unwrap();
+    let sop = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(SUPER_OP_TS, 100.0, 0.0)],
+    )
+    .unwrap();
     assert_eq!(sop.peak.import_kwh, 0.0);
     assert_eq!(sop.off_peak.import_kwh, 0.0);
     assert!(
@@ -303,7 +344,12 @@ fn test_coastal_6period_winter_classification() {
     );
 
     // Jan hour 12 → period 4 (rate 0.40, mid in winter group) → OffPeak
-    let op = calculator::calculate(&schedule, &[make_window(OFF_PEAK_TS, 100.0, 0.0)]).unwrap();
+    let op = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(OFF_PEAK_TS, 100.0, 0.0)],
+    )
+    .unwrap();
     assert_eq!(op.peak.import_kwh, 0.0);
     assert!(
         op.off_peak.import_kwh > 0.0,
@@ -318,8 +364,12 @@ fn test_coastal_6period_summer_classification() {
     let schedule = coastal_fixture_schedule();
 
     // Jul hour 16 → period 0 (rate 0.60, highest in summer group) → Peak
-    let peak =
-        calculator::calculate(&schedule, &[make_window(SUMMER_PEAK_TS, 100.0, 0.0)]).unwrap();
+    let peak = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(SUMMER_PEAK_TS, 100.0, 0.0)],
+    )
+    .unwrap();
     assert!(
         peak.peak.import_kwh > 0.0,
         "Jul hour 16 (period 0) should be Peak"
@@ -328,8 +378,12 @@ fn test_coastal_6period_summer_classification() {
     assert_eq!(peak.super_off_peak.import_kwh, 0.0);
 
     // Jul hour 0 → period 2 (rate 0.30, lowest in summer group) → SuperOffPeak
-    let sop =
-        calculator::calculate(&schedule, &[make_window(SUMMER_SUPER_OP_TS, 100.0, 0.0)]).unwrap();
+    let sop = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(SUMMER_SUPER_OP_TS, 100.0, 0.0)],
+    )
+    .unwrap();
     assert_eq!(sop.peak.import_kwh, 0.0);
     assert_eq!(sop.off_peak.import_kwh, 0.0);
     assert!(
@@ -338,8 +392,12 @@ fn test_coastal_6period_summer_classification() {
     );
 
     // Jul hour 8 → period 1 (rate 0.45, mid in summer group) → OffPeak
-    let op =
-        calculator::calculate(&schedule, &[make_window(SUMMER_OFF_PEAK_TS, 100.0, 0.0)]).unwrap();
+    let op = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(SUMMER_OFF_PEAK_TS, 100.0, 0.0)],
+    )
+    .unwrap();
     assert_eq!(op.peak.import_kwh, 0.0);
     assert!(
         op.off_peak.import_kwh > 0.0,
@@ -354,11 +412,20 @@ fn test_coastal_cross_season_both_peak() {
     let schedule = coastal_fixture_schedule();
     // Jan hour 16 → period 3 → Peak (winter group, rate 0.55)
     // 100 Wh = 0.1 kWh × $0.55 = $0.055
-    let winter = calculator::calculate(&schedule, &[make_window(PEAK_TS, 100.0, 0.0)]).unwrap();
+    let winter = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(PEAK_TS, 100.0, 0.0)],
+    )
+    .unwrap();
     // Jul hour 16 → period 0 → Peak (summer group, rate 0.60)
     // 100 Wh = 0.1 kWh × $0.60 = $0.060
-    let summer =
-        calculator::calculate(&schedule, &[make_window(SUMMER_PEAK_TS, 100.0, 0.0)]).unwrap();
+    let summer = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(SUMMER_PEAK_TS, 100.0, 0.0)],
+    )
+    .unwrap();
     assert!(winter.peak.import_kwh > 0.0, "Jan hour 16 should be Peak");
     assert!(summer.peak.import_kwh > 0.0, "Jul hour 16 should be Peak");
     assert_eq!(winter.off_peak.import_kwh, 0.0);
@@ -392,8 +459,12 @@ fn test_weekend_only_period_in_active_set() {
     );
     let schedule = make_schedule(&rate_json);
     // WEEKEND_MIDDAY_TS: Jan 7 (Sunday) 12:00 PST → period 2 (weekend-only) → SuperOffPeak
-    let result =
-        calculator::calculate(&schedule, &[make_window(WEEKEND_MIDDAY_TS, 100.0, 0.0)]).unwrap();
+    let result = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(WEEKEND_MIDDAY_TS, 100.0, 0.0)],
+    )
+    .unwrap();
     assert_eq!(result.peak.import_kwh, 0.0);
     assert_eq!(result.off_peak.import_kwh, 0.0);
     assert!(
@@ -413,7 +484,12 @@ fn test_single_active_period_classifies_as_peak() {
         r = months.join(","),
     );
     let schedule = make_schedule(&rate_json);
-    let result = calculator::calculate(&schedule, &[make_window(PEAK_TS, 100.0, 0.0)]).unwrap();
+    let result = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(PEAK_TS, 100.0, 0.0)],
+    )
+    .unwrap();
     assert!(
         result.peak.import_kwh > 0.0,
         "single-period month should classify as Peak"
@@ -433,8 +509,18 @@ fn test_two_active_periods_no_super_off_peak() {
         r = months.join(","),
     );
     let schedule = make_schedule(&rate_json);
-    let peak = calculator::calculate(&schedule, &[make_window(PEAK_TS, 100.0, 0.0)]).unwrap();
-    let off = calculator::calculate(&schedule, &[make_window(SUPER_OP_TS, 100.0, 0.0)]).unwrap();
+    let peak = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(PEAK_TS, 100.0, 0.0)],
+    )
+    .unwrap();
+    let off = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(SUPER_OP_TS, 100.0, 0.0)],
+    )
+    .unwrap();
     assert!(peak.peak.import_kwh > 0.0);
     assert_eq!(peak.super_off_peak.import_kwh, 0.0);
     assert!(off.off_peak.import_kwh > 0.0);
@@ -453,7 +539,12 @@ fn test_schedule_references_missing_period_index_returns_error() {
         r = months.join(","),
     );
     let schedule = make_schedule(&rate_json);
-    let err = calculator::calculate(&schedule, &[make_window(PEAK_TS, 100.0, 0.0)]).unwrap_err();
+    let err = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(PEAK_TS, 100.0, 0.0)],
+    )
+    .unwrap_err();
     assert!(matches!(err, AppError::Tou(TouError::ParseError(_))));
 }
 
@@ -469,10 +560,18 @@ fn test_dst_spring_forward_boundary() {
     let schedule = fixture_schedule();
     // hours 0-5 → period 0 (super-off-peak) in fixture_rate_json
 
-    let pre = calculator::calculate(&schedule, &[make_window(DST_SPRING_PRE_TS, 100.0, 0.0)])
-        .expect("pre-DST timestamp must not error");
-    let post = calculator::calculate(&schedule, &[make_window(DST_SPRING_POST_TS, 100.0, 0.0)])
-        .expect("post-DST timestamp must not error");
+    let pre = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(DST_SPRING_PRE_TS, 100.0, 0.0)],
+    )
+    .expect("pre-DST timestamp must not error");
+    let post = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        &[make_window(DST_SPRING_POST_TS, 100.0, 0.0)],
+    )
+    .expect("post-DST timestamp must not error");
 
     assert!(
         pre.super_off_peak.import_kwh > 0.0,
@@ -485,4 +584,30 @@ fn test_dst_spring_forward_boundary() {
         "03:30 PDT (hour 3) should be SuperOffPeak"
     );
     assert_eq!(post.peak.import_kwh, 0.0, "03:30 PDT should not be Peak");
+}
+
+#[test]
+fn configured_timezone_changes_bracket_at_same_instant() {
+    let schedule = fixture_schedule();
+    let window = make_window(PEAK_TS, 1000.0, 0.0);
+    let west = calculator::calculate(
+        &schedule,
+        chrono_tz::America::Los_Angeles,
+        std::slice::from_ref(&window),
+    )
+    .unwrap();
+    let utc = calculator::calculate(&schedule, chrono_tz::UTC, &[window]).unwrap();
+    assert_eq!(west.peak.import_kwh, 1.0);
+    assert_eq!(utc.super_off_peak.import_kwh, 1.0);
+}
+
+#[test]
+fn timezone_is_required_and_validated() {
+    let mut config =
+        serde_json::json!({"openei_api_key":"test", "utility_eia_id":1, "rate_label":"test"});
+    assert!(serde_json::from_value::<enphase_bridge::config::TouConfig>(config.clone()).is_err());
+    config["timezone"] = serde_json::json!("invalid/timezone");
+    assert!(serde_json::from_value::<enphase_bridge::config::TouConfig>(config.clone()).is_err());
+    config["timezone"] = serde_json::json!("Asia/Kolkata");
+    assert!(serde_json::from_value::<enphase_bridge::config::TouConfig>(config).is_ok());
 }

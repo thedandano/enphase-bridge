@@ -30,6 +30,7 @@ fn make_state(pool: SqlitePool) -> AppState {
         token_expires_at: 9_999_999_999,
         started_at: 0,
         arrays: Default::default(),
+        tou_timezone: chrono_tz::America::Los_Angeles,
         tou_api_key: String::new(),
         tou_utility_eia_id: 0,
         tou_rate_label: String::new(),
