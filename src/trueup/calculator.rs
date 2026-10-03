@@ -1,7 +1,8 @@
 use crate::error::{AppError, TouError};
 use crate::storage::models::{EnergyWindow, TouRateSchedule};
 use chrono::{Datelike, TimeZone, Timelike};
-use chrono_tz::America::Los_Angeles;
+use chrono_tz::Tz;
+use serde::Serialize;
 use std::collections::{BTreeSet, HashMap};
 
 #[derive(Debug, Default, Clone)]
@@ -12,7 +13,7 @@ pub struct PeriodSummary {
     pub export_credit_usd: f64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct CalculatorResult {
     pub peak: PeriodSummary,
     pub off_peak: PeriodSummary,
@@ -20,8 +21,9 @@ pub struct CalculatorResult {
     pub net_cost_usd: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TouPeriod {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TouPeriod {
     Peak,
     OffPeak,
     SuperOffPeak,
@@ -32,41 +34,47 @@ struct PeriodRate {
     sell_rate: f64,
 }
 
-pub fn calculate(
-    schedule: &TouRateSchedule,
-    windows: &[EnergyWindow],
-) -> Result<CalculatorResult, AppError> {
-    let rate_json: serde_json::Value = serde_json::from_str(&schedule.rate_json)
-        .map_err(|e| AppError::Tou(TouError::ParseError(e.to_string())))?;
+pub struct ScheduleResolver {
+    weekday_sched: Vec<Vec<usize>>,
+    weekend_sched: Vec<Vec<usize>>,
+    period_rates: Vec<PeriodRate>,
+    month_maps: [HashMap<usize, TouPeriod>; 12],
+}
 
-    let weekday_sched = parse_schedule(&rate_json["energyweekdayschedule"])?;
-    let weekend_sched = parse_schedule(&rate_json["energyweekendschedule"])?;
-    let period_rates = parse_period_rates(&rate_json["energyratestructure"])?;
-    let month_maps =
-        build_per_month_maps(schedule.id, &weekday_sched, &weekend_sched, &period_rates)?;
+impl ScheduleResolver {
+    pub fn new(schedule: &TouRateSchedule) -> Result<Self, AppError> {
+        let rate_json: serde_json::Value = serde_json::from_str(&schedule.rate_json)
+            .map_err(|e| AppError::Tou(TouError::ParseError(e.to_string())))?;
 
-    tracing::info!(
-        event = "trueup_calc_start",
-        windows = %windows.len(),
-        schedule_id = %schedule.id,
-        period_count = %period_rates.len(),
-    );
+        let weekday_sched = parse_schedule(&rate_json["energyweekdayschedule"])?;
+        let weekend_sched = parse_schedule(&rate_json["energyweekendschedule"])?;
+        let period_rates = parse_period_rates(&rate_json["energyratestructure"])?;
+        let month_maps =
+            build_per_month_maps(schedule.id, &weekday_sched, &weekend_sched, &period_rates)?;
 
-    let mut peak = PeriodSummary::default();
-    let mut off_peak = PeriodSummary::default();
-    let mut super_off_peak = PeriodSummary::default();
+        Ok(Self {
+            weekday_sched,
+            weekend_sched,
+            period_rates,
+            month_maps,
+        })
+    }
 
-    for window in windows {
+    pub fn bracket_at(&self, timestamp: i64, timezone: Tz) -> Result<TouPeriod, AppError> {
+        self.resolve(timestamp, timezone).map(|(period, _)| period)
+    }
+
+    fn resolve(&self, timestamp: i64, timezone: Tz) -> Result<(TouPeriod, &PeriodRate), AppError> {
         let local_dt = chrono::Utc
-            .timestamp_opt(window.window_start, 0)
+            .timestamp_opt(timestamp, 0)
             .single()
             .ok_or_else(|| {
                 AppError::Tou(TouError::ParseError(format!(
                     "invalid window timestamp: {}",
-                    window.window_start
+                    timestamp
                 )))
             })?
-            .with_timezone(&Los_Angeles);
+            .with_timezone(&timezone);
 
         let month = local_dt.month0() as usize;
         let hour = local_dt.hour() as usize;
@@ -76,9 +84,9 @@ pub fn calculate(
         );
 
         let sched = if is_weekend {
-            &weekend_sched
+            &self.weekend_sched
         } else {
-            &weekday_sched
+            &self.weekday_sched
         };
         let period_idx = sched
             .get(month)
@@ -90,14 +98,40 @@ pub fn calculate(
                 )))
             })?;
 
-        let tou_period = month_maps[month].get(&period_idx).copied().ok_or_else(|| {
-            AppError::Tou(TouError::ParseError(format!(
-                "period_idx={period_idx} not in month={month} map"
-            )))
-        })?;
+        let tou_period = self.month_maps[month]
+            .get(&period_idx)
+            .copied()
+            .ok_or_else(|| {
+                AppError::Tou(TouError::ParseError(format!(
+                    "period_idx={period_idx} not in month={month} map"
+                )))
+            })?;
 
-        let rates = &period_rates[period_idx]; // invariant: build_per_month_maps pre-validated this index
+        let rates = &self.period_rates[period_idx]; // invariant: build_per_month_maps pre-validated this index
 
+        Ok((tou_period, rates))
+    }
+}
+
+pub fn calculate(
+    schedule: &TouRateSchedule,
+    timezone: Tz,
+    windows: &[EnergyWindow],
+) -> Result<CalculatorResult, AppError> {
+    let resolver = ScheduleResolver::new(schedule)?;
+    tracing::info!(
+        event = "trueup_calc_start",
+        windows = %windows.len(),
+        schedule_id = %schedule.id,
+        period_count = %resolver.period_rates.len(),
+    );
+
+    let mut peak = PeriodSummary::default();
+    let mut off_peak = PeriodSummary::default();
+    let mut super_off_peak = PeriodSummary::default();
+
+    for window in windows {
+        let (tou_period, rates) = resolver.resolve(window.window_start, timezone)?;
         let import_kwh = window.wh_grid_import / 1000.0;
         let export_kwh = window.wh_grid_export / 1000.0;
 
@@ -139,6 +173,11 @@ fn parse_schedule(val: &serde_json::Value) -> Result<Vec<Vec<usize>>, AppError> 
             "energyweekdayschedule is not an array".into(),
         ))
     })?;
+    if months.len() != 12 {
+        return Err(AppError::Tou(TouError::ParseError(
+            "schedule must contain 12 months".into(),
+        )));
+    }
     months
         .iter()
         .map(|month_val| {
@@ -147,6 +186,11 @@ fn parse_schedule(val: &serde_json::Value) -> Result<Vec<Vec<usize>>, AppError> 
                     "schedule month is not an array".into(),
                 ))
             })?;
+            if hours.len() != 24 {
+                return Err(AppError::Tou(TouError::ParseError(
+                    "schedule month must contain 24 hours".into(),
+                )));
+            }
             hours
                 .iter()
                 .map(|h| {

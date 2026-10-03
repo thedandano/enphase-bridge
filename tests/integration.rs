@@ -41,3 +41,6 @@ mod phase_reading_test;
 
 #[path = "integration/api_phases_test.rs"]
 mod api_phases_test;
+
+#[path = "integration/tou_intervals_test.rs"]
+mod tou_intervals_test;

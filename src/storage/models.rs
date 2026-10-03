@@ -82,3 +82,13 @@ pub struct PhaseReading {
     pub energy_dlvd_wh: f64,
     pub energy_rcvd_wh: f64,
 }
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ScheduleVersion {
+    #[sqlx(flatten)]
+    pub schedule: TouRateSchedule,
+    pub utility_eia_id: i64,
+    pub source_id: String,
+    pub effective_start: i64,
+    pub effective_end: Option<i64>,
+}

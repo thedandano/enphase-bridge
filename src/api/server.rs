@@ -12,6 +12,7 @@ pub struct AppState {
     pub token_expires_at: i64,
     pub started_at: i64,
     pub arrays: HashMap<String, Vec<String>>,
+    pub tou_timezone: chrono_tz::Tz,
     pub tou_api_key: String,
     pub tou_utility_eia_id: u32,
     pub tou_rate_label: String,
@@ -30,6 +31,7 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/inverters/arrays", get(arrays::get_arrays))
         .route("/api/tou/refresh", post(tou::refresh_tou))
+        .route("/api/tou/intervals", get(tou::get_intervals))
         .route("/api/trueup/estimate", get(trueup::get_estimate))
         .route("/api/power/samples", get(power::get_power_samples))
         .route("/api/power/phases", get(phases::get_phase_readings))
