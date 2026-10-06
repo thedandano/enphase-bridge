@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/thedandano/enphase-bridge/compare/enphase-bridge-v0.3.0...enphase-bridge-v0.4.0) (2026-10-03)
+
+
+### Features
+
+* expose historical time-of-use intervals ([601ab46](https://github.com/thedandano/enphase-bridge/commit/601ab46fd2ea0f7b830829a70ed7f506c27dcbf5))
+
 ## [0.3.0](https://github.com/thedandano/enphase-bridge/compare/enphase-bridge-v0.2.2...enphase-bridge-v0.3.0) (2026-08-30)
 
 
